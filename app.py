@@ -94,6 +94,14 @@ st.title("🌱 ZancanAgro - Lançamento de Aplicações")
 
 (df_app, df_talhao, df_produto, df_produtor, df_tp, df_cultura) = load_all_data()
 
+# Inicialização de chaves de controle no session_state para limpar os campos
+if "dose_input" not in st.session_state:
+    st.session_state.dose_input = 0.0
+
+def reset_form_aplicacao():
+    """Função para redefinir os campos após o salvamento."""
+    st.session_state.dose_input = 0.0
+
 # Listas base
 if not df_produtor.empty and "Nome" in df_produtor.columns:
     lista_produtores = sorted(df_produtor["Nome"].dropna().unique().tolist())
@@ -143,14 +151,15 @@ with aba_cadastro:
     with col1:
         talhao_sel = st.selectbox(
             "2. Talhão / Área", 
-            options=opcoes_talhao if opcoes_talhao else ["Nenhum talhão cadastrado para este produtor"]
+            options=opcoes_talhao if opcoes_talhao else ["Nenhum talhão cadastrado para este produtor"],
+            key="talhao_select"
         )
-        tipo_sel = st.selectbox("3. Tipo de Aplicação", options=lista_tipos)
+        tipo_sel = st.selectbox("3. Tipo de Aplicação", options=lista_tipos, key="tipo_select")
         
     with col2:
-        produto_sel = st.selectbox("4. Produto / Insumo", options=lista_produtos)
-        dose_ha = st.number_input("5. Dose/ha (L ou Kg)", min_value=0.0, step=0.01, format="%.2f")
-        data_aplicacao = st.date_input("6. Data da Aplicação", value=date.today())
+        produto_sel = st.selectbox("4. Produto / Insumo", options=lista_produtos, key="produto_select")
+        dose_ha = st.number_input("5. Dose/ha (L ou Kg)", min_value=0.0, step=0.01, format="%.2f", key="dose_input")
+        data_aplicacao = st.date_input("6. Data da Aplicação", value=date.today(), key="data_select")
 
     coluna_area = "Área do Plantio" if str(tipo_sel).strip().lower() == "plantio" else "Área Pulverizada"
 
@@ -198,6 +207,7 @@ with aba_cadastro:
                     ws_app.append_row(nova_linha, value_input_option="USER_ENTERED")
                     
                     st.cache_data.clear()
+                    reset_form_aplicacao() # Reseta a dose para zero
                     st.success("✅ Registro gravado com sucesso no Google Drive!")
                     st.rerun()
                 except Exception as ex:
@@ -231,7 +241,7 @@ with aba_auxiliares:
     # 1. CADASTRO DE TALHÃO
     with sub_tab1:
         st.markdown("### Cadastrar Novo Talhão / Área")
-        with st.form("form_novo_talhao"):
+        with st.form("form_novo_talhao", clear_on_submit=True):
             c1, c2 = st.columns(2)
             with c1:
                 t_produtor = st.selectbox("Produtor", options=lista_produtores)
@@ -271,7 +281,7 @@ with aba_auxiliares:
     # 2. CADASTRO DE CULTURA
     with sub_tab2:
         st.markdown("### Cadastrar Nova Cultura")
-        with st.form("form_nova_cultura"):
+        with st.form("form_nova_cultura", clear_on_submit=True):
             c_nome = st.text_input("Nome da Cultura (ex: Algodão, Feijão)")
             btn_cad_cultura = st.form_submit_button("Salvar Cultura")
             if btn_cad_cultura:
@@ -291,7 +301,7 @@ with aba_auxiliares:
     # 3. CADASTRO DE TIPO DE APLICAÇÃO
     with sub_tab3:
         st.markdown("### Cadastrar Novo Tipo de Aplicação")
-        with st.form("form_novo_tp"):
+        with st.form("form_novo_tp", clear_on_submit=True):
             tp_nome = st.text_input("Nome do Tipo de Aplicação (ex: Foliar, Adubação de Cobertura)")
             btn_cad_tp = st.form_submit_button("Salvar Tipo de Aplicação")
             if btn_cad_tp:
@@ -311,7 +321,7 @@ with aba_auxiliares:
     # 4. CADASTRO DE PRODUTO
     with sub_tab4:
         st.markdown("### Cadastrar Novo Produto / Insumo")
-        with st.form("form_novo_prod"):
+        with st.form("form_novo_prod", clear_on_submit=True):
             novo_prod_nome = st.text_input("Nome do Produto")
             if st.form_submit_button("Cadastrar Produto"):
                 if novo_prod_nome.strip():
@@ -330,7 +340,7 @@ with aba_auxiliares:
     # 5. CADASTRO DE PRODUTOR
     with sub_tab5:
         st.markdown("### Cadastrar Novo Produtor")
-        with st.form("form_novo_produtor"):
+        with st.form("form_novo_produtor", clear_on_submit=True):
             novo_produtor_nome = st.text_input("Nome do Produtor")
             if st.form_submit_button("Cadastrar Produtor"):
                 if novo_produtor_nome.strip():
