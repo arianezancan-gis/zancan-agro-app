@@ -24,13 +24,23 @@ def get_gspread_client():
     return gspread.authorize(credentials)
 
 def parse_float(val):
-    """Converte valores com vírgula ou ponto para float com segurança."""
-    if pd.isna(val) or val == "" or str(val).strip() in ["#REF!", "#N/A", "None", "nan"]:
+    """Converte com segurança qualquer texto com vírgula ou ponto para float."""
+    if pd.isna(val) or val is None:
         return 0.0
+    
+    s = str(val).strip()
+    if not s or s in ["#REF!", "#N/A", "None", "nan", "NULL"]:
+        return 0.0
+
     try:
-        # Remove espaços e substitui vírgula decimal por ponto
-        clean_val = str(val).replace(".", "").replace(",", ".").strip() if str(val).count(",") == 1 and str(val).count(".") == 1 else str(val).replace(",", ".").strip()
-        return float(clean_val)
+        # Trata números com vírgula decimal (ex: "30,86")
+        if "," in s and "." not in s:
+            s = s.replace(",", ".")
+        # Trata números no formato de milhar brasileiro (ex: "1.234,56")
+        elif "," in s and "." in s:
+            s = s.replace(".", "").replace(",", ".")
+            
+        return float(s)
     except ValueError:
         return 0.0
 
@@ -40,27 +50,33 @@ def load_all_data():
         client = get_gspread_client()
         spreadsheet = client.open("ZancanAgro")
         
-        def get_df(sheet_name, fallback_index=0):
+        def get_df_raw(sheet_name, fallback_index=0):
             try:
                 ws = spreadsheet.worksheet(sheet_name)
             except Exception:
                 ws = spreadsheet.get_worksheet(fallback_index)
             
-            data = ws.get_all_records()
-            df = pd.DataFrame(data)
+            # Lê todos os valores como matriz de strings brutas para evitar perda de formatação
+            rows = ws.get_all_values()
+            if not rows:
+                return pd.DataFrame()
             
-            # Tratamento de decimais com vírgula em colunas numéricas
+            headers = [str(h).strip() for h in rows[0]]
+            data = rows[1:]
+            df = pd.DataFrame(data, columns=headers)
+            
+            # Limpa espaços extras em todas as células
             for col in df.columns:
-                df[col] = df[col].apply(lambda x: str(x).strip() if pd.notna(x) else x)
-            
+                df[col] = df[col].astype(str).str.strip()
+                
             return df.dropna(how="all")
 
-        df_app = get_df("Aplicação", 0)
-        df_talhao = get_df("Talhao", 1)
-        df_produto = get_df("Produto", 2)
-        df_produtor = get_df("Produtor", 3)
-        df_tp = get_df("TpAplicação", 4)
-        df_cultura = get_df("Cultura", 5)
+        df_app = get_df_raw("Aplicação", 0)
+        df_talhao = get_df_raw("Talhao", 1)
+        df_produto = get_df_raw("Produto", 2)
+        df_produtor = get_df_raw("Produtor", 3)
+        df_tp = get_df_raw("TpAplicação", 4)
+        df_cultura = get_df_raw("Cultura", 5)
 
         return (df_app, df_talhao, df_produto, df_produtor, df_tp, df_cultura)
     except Exception as e:
@@ -85,19 +101,19 @@ st.title("🌱 ZancanAgro - Lançamento de Aplicações")
 
 # Listas base
 if not df_produtor.empty and "Nome" in df_produtor.columns:
-    lista_produtores = sorted(df_produtor["Nome"].dropna().astype(str).str.strip().unique().tolist())
+    lista_produtores = sorted(df_produtor["Nome"].dropna().unique().tolist())
     lista_produtores = [p for p in lista_produtores if p]
 else:
     lista_produtores = ["Mauricio"]
 
 if not df_produto.empty and "Nome" in df_produto.columns:
-    lista_produtos = sorted(df_produto["Nome"].dropna().astype(str).str.strip().unique().tolist())
+    lista_produtos = sorted(df_produto["Nome"].dropna().unique().tolist())
     lista_produtos = [p for p in lista_produtos if p]
 else:
     lista_produtos = []
 
 if not df_tp.empty and "Nome" in df_tp.columns:
-    lista_tipos = sorted(df_tp["Nome"].dropna().astype(str).str.strip().unique().tolist())
+    lista_tipos = sorted(df_tp["Nome"].dropna().unique().tolist())
     lista_tipos = [t for t in lista_tipos if t]
 else:
     lista_tipos = ["Dessecação", "Plantio", "Limpa", "Fungicida 1"]
@@ -112,13 +128,13 @@ with aba_cadastro:
     with col_prod:
         produtor_sel = st.selectbox("1. Selecione o Produtor", options=lista_produtores, key="produtor_select")
 
-    # Filtro de Talhões
+    # Filtro de Talhões baseado no Produtor
     opcoes_talhao = []
     if not df_talhao.empty and "Produtor" in df_talhao.columns and "Nome da Área" in df_talhao.columns:
         df_talhao_filtrado = df_talhao[
-            df_talhao["Produtor"].astype(str).str.strip().str.upper() == str(produtor_sel).strip().upper()
+            df_talhao["Produtor"].str.upper() == str(produtor_sel).upper()
         ]
-        opcoes_talhao = sorted(df_talhao_filtrado["Nome da Área"].dropna().astype(str).str.strip().unique().tolist())
+        opcoes_talhao = sorted(df_talhao_filtrado["Nome da Área"].dropna().unique().tolist())
         opcoes_talhao = [t for t in opcoes_talhao if t]
 
     col1, col2 = st.columns(2)
@@ -135,26 +151,28 @@ with aba_cadastro:
         dose_ha = st.number_input("5. Dose/ha (L ou Kg)", min_value=0.0, step=0.01, format="%.2f")
         data_aplicacao = st.date_input("6. Data da Aplicação", value=date.today())
 
-    # Seleção da coluna de área baseada no Tipo de Aplicação
+    # Definição dinâmica da coluna de área (Plantio vs Outros)
     coluna_area = "Área do Plantio" if str(tipo_sel).strip().lower() == "plantio" else "Área Pulverizada"
 
-    # Cálculo reativo da área e do volume em tempo real com conversão correta de vírgula
+    # Busca do valor da área do talhão selecionado
     area_ha = 0.0
+    valor_area_bruto = "0"
     if not df_talhao.empty and talhao_sel in opcoes_talhao:
         row_t = df_talhao[
-            (df_talhao["Produtor"].astype(str).str.strip().str.upper() == str(produtor_sel).strip().upper()) & 
-            (df_talhao["Nome da Área"].astype(str).str.strip().str.upper() == str(talhao_sel).strip().upper())
+            (df_talhao["Produtor"].str.upper() == str(produtor_sel).upper()) & 
+            (df_talhao["Nome da Área"].str.upper() == str(talhao_sel).upper())
         ]
         if not row_t.empty and coluna_area in row_t.columns:
-            area_ha = parse_float(row_t[coluna_area].values[0])
+            valor_area_bruto = row_t[coluna_area].values[0]
+            area_ha = parse_float(valor_area_bruto)
 
     volume_total = dose_ha * area_ha
 
-    # Exibição do cálculo e indicação da área utilizada
+    # Exibição do cálculo reativo
     if dose_ha > 0 and area_ha > 0:
         st.info(f"🧪 **Volume Total Calculado:** **{volume_total:,.2f}** (L ou Kg)  *(Dose: {dose_ha} × {coluna_area}: {area_ha} ha)*")
     elif dose_ha > 0 and area_ha == 0:
-        st.warning(f"⚠️ O talhão selecionado não possui o valor de **{coluna_area}** preenchido corretamente na aba Talhao.")
+        st.warning(f"⚠️ O valor lido para **{coluna_area}** foi `{valor_area_bruto}`. Verifique a coluna no cadastro do talhão.")
 
     st.write("")
     btn_salvar = st.button("💾 Salvar no Google Drive", type="primary")
