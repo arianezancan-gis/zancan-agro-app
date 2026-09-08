@@ -24,10 +24,13 @@ def get_gspread_client():
     return gspread.authorize(credentials)
 
 def parse_float(val):
-    if pd.isna(val) or val == "" or str(val).strip() in ["#REF!", "#N/A", "None"]:
+    """Converte valores com vírgula ou ponto para float com segurança."""
+    if pd.isna(val) or val == "" or str(val).strip() in ["#REF!", "#N/A", "None", "nan"]:
         return 0.0
     try:
-        return float(str(val).replace(",", ".").strip())
+        # Remove espaços e substitui vírgula decimal por ponto
+        clean_val = str(val).replace(".", "").replace(",", ".").strip() if str(val).count(",") == 1 and str(val).count(".") == 1 else str(val).replace(",", ".").strip()
+        return float(clean_val)
     except ValueError:
         return 0.0
 
@@ -42,8 +45,14 @@ def load_all_data():
                 ws = spreadsheet.worksheet(sheet_name)
             except Exception:
                 ws = spreadsheet.get_worksheet(fallback_index)
+            
             data = ws.get_all_records()
             df = pd.DataFrame(data)
+            
+            # Tratamento de decimais com vírgula em colunas numéricas
+            for col in df.columns:
+                df[col] = df[col].apply(lambda x: str(x).strip() if pd.notna(x) else x)
+            
             return df.dropna(how="all")
 
         df_app = get_df("Aplicação", 0)
@@ -129,7 +138,7 @@ with aba_cadastro:
     # Seleção da coluna de área baseada no Tipo de Aplicação
     coluna_area = "Área do Plantio" if str(tipo_sel).strip().lower() == "plantio" else "Área Pulverizada"
 
-    # Cálculo reativo da área e do volume em tempo real
+    # Cálculo reativo da área e do volume em tempo real com conversão correta de vírgula
     area_ha = 0.0
     if not df_talhao.empty and talhao_sel in opcoes_talhao:
         row_t = df_talhao[
@@ -145,9 +154,9 @@ with aba_cadastro:
     if dose_ha > 0 and area_ha > 0:
         st.info(f"🧪 **Volume Total Calculado:** **{volume_total:,.2f}** (L ou Kg)  *(Dose: {dose_ha} × {coluna_area}: {area_ha} ha)*")
     elif dose_ha > 0 and area_ha == 0:
-        st.warning(f"⚠️ O talhão selecionado não possui o valor de **{coluna_area}** preenchido na aba Talhao.")
+        st.warning(f"⚠️ O talhão selecionado não possui o valor de **{coluna_area}** preenchido corretamente na aba Talhao.")
 
-    st.write("") # Espaçamento
+    st.write("")
     btn_salvar = st.button("💾 Salvar no Google Drive", type="primary")
     
     if btn_salvar:
