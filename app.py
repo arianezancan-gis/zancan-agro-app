@@ -112,63 +112,68 @@ with aba_cadastro:
         opcoes_talhao = sorted(df_talhao_filtrado["Nome da Área"].dropna().astype(str).str.strip().unique().tolist())
         opcoes_talhao = [t for t in opcoes_talhao if t]
 
-    with st.form("form_aplicacao", clear_on_submit=False):
-        col1, col2 = st.columns(2)
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        talhao_sel = st.selectbox(
+            "2. Talhão / Área", 
+            options=opcoes_talhao if opcoes_talhao else ["Nenhum talhão cadastrado para este produtor"]
+        )
+        tipo_sel = st.selectbox("3. Tipo de Aplicação", options=lista_tipos)
         
-        with col1:
-            talhao_sel = st.selectbox(
-                "2. Talhão / Área", 
-                options=opcoes_talhao if opcoes_talhao else ["Nenhum talhão cadastrado para este produtor"]
-            )
-            tipo_sel = st.selectbox("3. Tipo de Aplicação", options=lista_tipos)
-            
-        with col2:
-            produto_sel = st.selectbox("4. Produto / Insumo", options=lista_produtos)
-            dose_ha = st.number_input("5. Dose/ha (L ou Kg)", min_value=0.0, step=0.01, format="%.2f")
-            data_aplicacao = st.date_input("6. Data da Aplicação", value=date.today())
+    with col2:
+        produto_sel = st.selectbox("4. Produto / Insumo", options=lista_produtos)
+        dose_ha = st.number_input("5. Dose/ha (L ou Kg)", min_value=0.0, step=0.01, format="%.2f")
+        data_aplicacao = st.date_input("6. Data da Aplicação", value=date.today())
 
-        # Cálculo interno da área pulverizada
-        area_ha = 0.0
-        if not df_talhao.empty and talhao_sel in opcoes_talhao:
-            row_t = df_talhao[
-                (df_talhao["Produtor"].astype(str).str.strip().str.upper() == str(produtor_sel).strip().upper()) & 
-                (df_talhao["Nome da Área"].astype(str).str.strip().str.upper() == str(talhao_sel).strip().upper())
-            ]
-            if not row_t.empty and "Área Pulverizada" in row_t.columns:
-                area_ha = parse_float(row_t["Área Pulverizada"].values[0])
+    # Cálculo reativo da área e do volume em tempo real
+    area_ha = 0.0
+    if not df_talhao.empty and talhao_sel in opcoes_talhao:
+        row_t = df_talhao[
+            (df_talhao["Produtor"].astype(str).str.strip().str.upper() == str(produtor_sel).strip().upper()) & 
+            (df_talhao["Nome da Área"].astype(str).str.strip().str.upper() == str(talhao_sel).strip().upper())
+        ]
+        if not row_t.empty and "Área Pulverizada" in row_t.columns:
+            area_ha = parse_float(row_t["Área Pulverizada"].values[0])
 
-        volume_total = dose_ha * area_ha
-        if volume_total > 0:
-            st.info(f"💡 **Volume Total Calculado:** {volume_total:.2f} (L ou Kg) — *Área cadastrada: {area_ha} ha*")
+    volume_total = dose_ha * area_ha
 
-        btn_salvar = st.form_submit_button("Salvar no Google Drive")
-        
-        if btn_salvar:
-            if not opcoes_talhao or talhao_sel not in opcoes_talhao:
-                st.error("⚠️ Selecione um talhão válido associado ao produtor.")
-            elif not produto_sel or dose_ha <= 0:
-                st.error("⚠️ Selecione um produto e informe uma dose maior que zero.")
-            else:
-                with st.spinner("Gravando dados no Google Drive..."):
-                    try:
-                        ws_app = get_worksheet_handle("Aplicação", 0)
-                        
-                        nova_linha = [
-                            str(produtor_sel),
-                            str(talhao_sel),
-                            str(tipo_sel),
-                            str(produto_sel),
-                            str(dose_ha).replace(".", ","),
-                            str(round(volume_total, 2)).replace(".", ",") if volume_total > 0 else "",
-                            data_aplicacao.strftime("%d/%m/%Y")
-                        ]
-                        
-                        ws_app.append_row(nova_linha, value_input_option="USER_ENTERED")
-                        
-                        st.cache_data.clear()
-                        st.success("✅ Registro gravado com sucesso no Google Drive!")
-                    except Exception as ex:
-                        st.error(f"❌ Falha ao gravar no Google Drive: {ex}")
+    # Exibição do cálculo antes de salvar
+    if dose_ha > 0 and area_ha > 0:
+        st.info(f"🧪 **Volume Total Calculado:** **{volume_total:,.2f}** (L ou Kg)  *(Dose: {dose_ha} × Área do Talhão: {area_ha} ha)*")
+    elif dose_ha > 0 and area_ha == 0:
+        st.warning("⚠️ O talhão selecionado não possui a 'Área Pulverizada' preenchida na aba Talhao.")
+
+    st.write("") # Espaçamento
+    btn_salvar = st.button("💾 Salvar no Google Drive", type="primary")
+    
+    if btn_salvar:
+        if not opcoes_talhao or talhao_sel not in opcoes_talhao:
+            st.error("⚠️ Selecione um talhão válido associado ao produtor.")
+        elif not produto_sel or dose_ha <= 0:
+            st.error("⚠️ Selecione um produto e informe uma dose maior que zero.")
+        else:
+            with st.spinner("Gravando dados no Google Drive..."):
+                try:
+                    ws_app = get_worksheet_handle("Aplicação", 0)
+                    
+                    nova_linha = [
+                        str(produtor_sel),
+                        str(talhao_sel),
+                        str(tipo_sel),
+                        str(produto_sel),
+                        str(dose_ha).replace(".", ","),
+                        str(round(volume_total, 2)).replace(".", ",") if volume_total > 0 else "",
+                        data_aplicacao.strftime("%d/%m/%Y")
+                    ]
+                    
+                    ws_app.append_row(nova_linha, value_input_option="USER_ENTERED")
+                    
+                    st.cache_data.clear()
+                    st.success("✅ Registro gravado com sucesso no Google Drive!")
+                    st.rerun()
+                except Exception as ex:
+                    st.error(f"❌ Falha ao gravar no Google Drive: {ex}")
 
 # --- ABA 2: HISTÓRICO DE APLICAÇÕES ---
 with aba_historico:
@@ -201,6 +206,7 @@ with aba_auxiliares:
                         ws_produto.append_row([proximo_codigo, novo_prod_nome], value_input_option="USER_ENTERED")
                         st.cache_data.clear()
                         st.success(f"Produto '{novo_prod_nome}' cadastrado!")
+                        st.rerun()
                     except Exception as ex:
                         st.error(f"Erro ao salvar produto: {ex}")
 
@@ -216,5 +222,6 @@ with aba_auxiliares:
                         ws_produtor.append_row([proximo_codigo, novo_produtor_nome], value_input_option="USER_ENTERED")
                         st.cache_data.clear()
                         st.success(f"Produtor '{novo_produtor_nome}' cadastrado!")
+                        st.rerun()
                     except Exception as ex:
                         st.error(f"Erro ao salvar produtor: {ex}")
