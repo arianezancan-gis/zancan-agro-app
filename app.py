@@ -5,7 +5,7 @@ from google.oauth2.service_account import Credentials
 from datetime import date
 
 # ---------------------------------------------------------
-# 1. AUTENTICAÇÃO COM GOOGLE DRIVE
+# 1. AUTENTICAÇÃO E CONEXÃO COM GOOGLE DRIVE
 # ---------------------------------------------------------
 SCOPES = [
     "https://www.googleapis.com/auth/spreadsheets",
@@ -24,7 +24,7 @@ def get_gspread_client():
     return gspread.authorize(credentials)
 
 def parse_float(val):
-    if pd.isna(val) or val == "" or str(val).strip() == "#REF!":
+    if pd.isna(val) or val == "" or str(val).strip() in ["#REF!", "#N/A", "None"]:
         return 0.0
     try:
         return float(str(val).replace(",", ".").strip())
@@ -37,20 +37,22 @@ def load_all_data():
         client = get_gspread_client()
         spreadsheet = client.open("ZancanAgro")
         
-        def get_ws_and_df(sheet_name, fallback_index=0):
+        def get_df(sheet_name, fallback_index=0):
             try:
                 ws = spreadsheet.worksheet(sheet_name)
             except Exception:
                 ws = spreadsheet.get_worksheet(fallback_index)
             data = ws.get_all_records()
-            return pd.DataFrame(data)
+            df = pd.DataFrame(data)
+            # Remove linhas completamente vazias
+            return df.dropna(how="all")
 
-        df_app = get_ws_and_df("Aplicação", 0)
-        df_talhao = get_ws_and_df("Talhao", 1)
-        df_produto = get_ws_and_df("Produto", 2)
-        df_produtor = get_ws_and_df("Produtor", 3)
-        df_tp = get_ws_and_df("TpAplicação", 4)
-        df_cultura = get_ws_and_df("Cultura", 5)
+        df_app = get_df("Aplicação", 0)
+        df_talhao = get_df("Talhao", 1)
+        df_produto = get_df("Produto", 2)
+        df_produtor = get_df("Produtor", 3)
+        df_tp = get_df("TpAplicação", 4)
+        df_cultura = get_df("Cultura", 5)
 
         return (df_app, df_talhao, df_produto, df_produtor, df_tp, df_cultura)
     except Exception as e:
@@ -73,19 +75,22 @@ st.title("🌱 ZancanAgro - Lançamento de Aplicações")
 
 (df_app, df_talhao, df_produto, df_produtor, df_tp, df_cultura) = load_all_data()
 
-# Tratamento e limpeza das listas
+# Tratamento e limpeza das listas base
 if not df_produtor.empty and "Nome" in df_produtor.columns:
     lista_produtores = sorted(df_produtor["Nome"].dropna().astype(str).str.strip().unique().tolist())
+    lista_produtores = [p for p in lista_produtores if p]
 else:
     lista_produtores = ["Mauricio"]
 
 if not df_produto.empty and "Nome" in df_produto.columns:
     lista_produtos = sorted(df_produto["Nome"].dropna().astype(str).str.strip().unique().tolist())
+    lista_produtos = [p for p in lista_produtos if p]
 else:
     lista_produtos = []
 
 if not df_tp.empty and "Nome" in df_tp.columns:
     lista_tipos = sorted(df_tp["Nome"].dropna().astype(str).str.strip().unique().tolist())
+    lista_tipos = [t for t in lista_tipos if t]
 else:
     lista_tipos = ["Dessecação", "Plantio", "Limpa", "Fungicida 1"]
 
@@ -95,35 +100,35 @@ aba_cadastro, aba_historico, aba_auxiliares = st.tabs(["📝 Cadastrar Aplicaç�
 with aba_cadastro:
     st.subheader("Nova Aplicação de Insumos")
     
-    col_prod, col_info = st.columns([1, 2])
+    # 1. Seleção de Produtor fora do form para atualizar instantaneamente os Talhões
+    col_prod, _ = st.columns([1, 2])
     with col_prod:
-        produtor_sel = st.selectbox("1. Selecione o Produtor", options=lista_produtores)
+        produtor_sel = st.selectbox("1. Selecione o Produtor", options=lista_produtores, key="produtor_select")
 
-    # Lógica de busca dos talhões com tratamento de espaços
+    # 2. Filtro estrito de Talhões por Produtor (aba 'Talhao')
     opcoes_talhao = []
     if not df_talhao.empty and "Produtor" in df_talhao.columns and "Nome da Área" in df_talhao.columns:
-        df_talhao_filtered = df_talhao[
+        df_talhao_filtrado = df_talhao[
             df_talhao["Produtor"].astype(str).str.strip().str.upper() == str(produtor_sel).strip().upper()
         ]
-        opcoes_talhao = sorted(df_talhao_filtered["Nome da Área"].dropna().astype(str).str.strip().unique().tolist())
-
-    if not opcoes_talhao:
-        # Fallback para mostrar todos os talhões caso o filtro por produtor falhe
-        if not df_talhao.empty and "Nome da Área" in df_talhao.columns:
-            opcoes_talhao = sorted(df_talhao["Nome da Área"].dropna().astype(str).str.strip().unique().tolist())
+        opcoes_talhao = sorted(df_talhao_filtrado["Nome da Área"].dropna().astype(str).str.strip().unique().tolist())
+        opcoes_talhao = [t for t in opcoes_talhao if t]
 
     with st.form("form_aplicacao", clear_on_submit=True):
         col1, col2 = st.columns(2)
         
         with col1:
-            talhao_sel = st.selectbox("2. Talhão / Área", options=opcoes_talhao if opcoes_talhao else ["Nenhum talhão encontrado"])
+            talhao_sel = st.selectbox(
+                "2. Talhão / Área", 
+                options=opcoes_talhao if opcoes_talhao else ["Nenhum talhão cadastrado para este produtor"]
+            )
             tipo_sel = st.selectbox("3. Tipo de Aplicação", options=lista_tipos)
             produto_sel = st.selectbox("4. Produto / Insumo", options=lista_produtos)
             
         with col2:
             dose_ha = st.number_input("5. Dose/ha (L ou Kg)", min_value=0.0, step=0.01, format="%.2f")
             
-            # Busca área pulverizada
+            # Busca automática da Área Pulverizada correspondente ao Talhão selecionado
             area_pulverizada = 0.0
             if not df_talhao.empty and talhao_sel in opcoes_talhao:
                 row_t = df_talhao[
@@ -143,7 +148,9 @@ with aba_cadastro:
         btn_salvar = st.form_submit_button("Salvar no Google Drive")
         
         if btn_salvar:
-            if not produto_sel or dose_ha <= 0:
+            if not opcoes_talhao or talhao_sel not in opcoes_talhao:
+                st.error("Selecione um talhão válido associado ao produtor.")
+            elif not produto_sel or dose_ha <= 0:
                 st.error("Selecione um produto e preencha uma dose maior que zero.")
             else:
                 try:
