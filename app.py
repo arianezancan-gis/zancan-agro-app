@@ -87,9 +87,7 @@ def get_worksheet_handle(sheet_name, fallback_index=0):
         return spreadsheet.get_worksheet(fallback_index)
 
 def atualizar_linha_gspread(sheet_name, fallback_index, num_linha_planilha, nova_linha):
-    """Atualiza uma linha inteira na planilha do Google Sheets."""
     ws = get_worksheet_handle(sheet_name, fallback_index)
-    # Ex: A2:H2 para a segunda linha
     col_final = chr(ord('A') + len(nova_linha) - 1)
     cell_range = f"A{num_linha_planilha}:{col_final}{num_linha_planilha}"
     ws.update(cell_range, [nova_linha], value_input_option="USER_ENTERED")
@@ -134,12 +132,122 @@ if not df_cultura.empty and "Nome" in df_cultura.columns:
 else:
     lista_culturas = ["Soja", "Milho", "Trigo"]
 
-aba_cadastro, aba_historico, aba_auxiliares, aba_edicao_aux = st.tabs([
+# Definição das abas da aplicação
+aba_dashboard, aba_cadastro, aba_historico, aba_auxiliares, aba_edicao_aux = st.tabs([
+    "📈 Dashboard & Resumos",
     "📝 Cadastrar Aplicação", 
     "📊 Histórico de Aplicações", 
     "⚙️ Cadastros Auxiliares",
     "✏️ Editar Cadastros Auxiliares"
 ])
+
+# --- ABA DASHBOARD & RESUMOS ---
+with aba_dashboard:
+    st.subheader("📊 Resumo e Métricas das Aplicações")
+    
+    if df_app.empty:
+        st.info("Nenhum dado de aplicação cadastrado para exibir o dashboard.")
+    else:
+        # Copia e prepara o DataFrame para análise
+        df_dash = df_app.copy()
+        
+        # Identificação inteligente de colunas
+        cols_lower = {col.lower(): col for col in df_dash.columns}
+        col_produtor = cols_lower.get("produtor", df_dash.columns[0])
+        col_talhao = cols_lower.get("talhão / área", cols_lower.get("talhao", cols_lower.get("talhão", df_dash.columns[1])))
+        col_tipo = cols_lower.get("tipo de aplicação", cols_lower.get("tipo", df_dash.columns[2]))
+        col_produto = cols_lower.get("produto / insumo", cols_lower.get("produto", df_dash.columns[3]))
+        col_dose = cols_lower.get("dose/ha (l ou kg)", cols_lower.get("dose/ha", cols_lower.get("dose", df_dash.columns[4])))
+        col_vol = cols_lower.get("volume total (l ou kg)", cols_lower.get("volume total", cols_lower.get("volume", df_dash.columns[5] if len(df_dash.columns) > 5 else df_dash.columns[-1])))
+
+        # Conversão dos números de volume e dose
+        df_dash["Volume_Num"] = df_dash[col_vol].apply(parse_float)
+        df_dash["Dose_Num"] = df_dash[col_dose].apply(parse_float)
+
+        # Filtros de Dashboard
+        st.markdown("#### 🔍 Filtros")
+        f_col1, f_col2 = st.columns(2)
+        with f_col1:
+            prods_disponiveis = ["Todos"] + sorted(df_dash[col_produtor].dropna().unique().tolist())
+            filtro_produtor = st.selectbox("Filtrar por Produtor:", options=prods_disponiveis)
+        
+        with f_col2:
+            produtos_disponiveis = ["Todos"] + sorted(df_dash[col_produto].dropna().unique().tolist())
+            filtro_produto = st.selectbox("Filtrar por Produto:", options=produtos_disponiveis)
+
+        # Aplicação dos filtros
+        df_filtrado = df_dash.copy()
+        if filtro_produtor != "Todos":
+            df_filtrado = df_filtrado[df_filtrado[col_produtor] == filtro_produtor]
+        if filtro_produto != "Todos":
+            df_filtrado = df_filtrado[df_filtrado[col_produto] == filtro_produto]
+
+        st.markdown("---")
+
+        # 1. Cartões de Métricas Chave (KPIs)
+        total_volume = df_filtrado["Volume_Num"].sum()
+        total_aplicacoes = len(df_filtrado)
+        total_areas = df_filtrado[col_talhao].nunique()
+
+        m1, m2, m3 = st.columns(3)
+        m1.metric("📦 Volume Total Aplicado", f"{total_volume:,.2f} L/Kg")
+        m2.metric("📋 Total de Aplicações", f"{total_aplicacoes}")
+        m3.metric("📍 Áreas / Talhões Atendidos", f"{total_areas}")
+
+        st.markdown("---")
+
+        # 2. Resumos em Tabelas e Gráficos
+        g_col1, g_col2 = st.columns(2)
+
+        with g_col1:
+            st.markdown("### 📍 Total Aplicado por Área / Talhão")
+            resumo_area = df_filtrado.groupby(col_talhao)["Volume_Num"].sum().reset_index()
+            resumo_area.columns = ["Área / Talhão", "Volume Total (L/Kg)"]
+            resumo_area = resumo_area.sort_values(by="Volume Total (L/Kg)", ascending=False)
+            
+            # Exibe Tabela formatada
+            st.dataframe(
+                resumo_area.style.format({"Volume Total (L/Kg)": "{:,.2f}"}),
+                use_container_width=True,
+                hide_index=True
+            )
+
+            # Gráfico de barras
+            st.bar_chart(resumo_area.set_index("Área / Talhão"))
+
+        with g_col2:
+            st.markdown("### 📦 Total de Insumos Aplicados")
+            resumo_prod = df_filtrado.groupby(col_produto)["Volume_Num"].sum().reset_index()
+            resumo_prod.columns = ["Produto / Insumo", "Volume Total (L/Kg)"]
+            resumo_prod = resumo_prod.sort_values(by="Volume Total (L/Kg)", ascending=False)
+
+            # Exibe Tabela formatada
+            st.dataframe(
+                resumo_prod.style.format({"Volume Total (L/Kg)": "{:,.2f}"}),
+                use_container_width=True,
+                hide_index=True
+            )
+
+            # Gráfico de barras
+            st.bar_chart(resumo_prod.set_index("Produto / Insumo"))
+
+        st.markdown("---")
+
+        # 3. Cruzamento Detalhado: Produto x Área
+        st.markdown("### 📑 Detalhamento: Quanto de cada produto foi aplicado em cada Área")
+        pivot_area_prod = pd.pivot_table(
+            df_filtrado,
+            values="Volume_Num",
+            index=[col_talhao],
+            columns=[col_produto],
+            aggfunc="sum",
+            fill_value=0.0
+        )
+        
+        st.dataframe(
+            pivot_area_prod.style.format("{:,.2f}"),
+            use_container_width=True
+        )
 
 # --- ABA 1: CADASTRO DE APLICAÇÕES ---
 with aba_cadastro:
@@ -240,7 +348,7 @@ with aba_historico:
     else:
         st.info("Nenhuma aplicação cadastrada até o momento.")
 
-# --- ABA 3: CADASTROS AUXILIARES (INSERÇÃO) ---
+# --- ABA 3: CADASTROS AUXILIARES ---
 with aba_auxiliares:
     st.subheader("⚙️ Cadastros do Sistema")
     
@@ -385,7 +493,6 @@ with aba_edicao_aux:
         else:
             options_talhoes = []
             for idx, r in df_talhao.iterrows():
-                # Indice da planilha = idx + 2 (cabecalho na linha 1)
                 options_talhoes.append((f"{r.get('Produtor', '')} - {r.get('Nome da Área', '')} (Cód: {r.get('Código', '')})", idx + 2, r))
             
             sel_talhao_opt = st.selectbox(
@@ -394,7 +501,6 @@ with aba_edicao_aux:
                 key="edit_talhao_select"
             )
             
-            # Dados selecionados
             sel_tuple = [opt for opt in options_talhoes if opt[0] == sel_talhao_opt][0]
             row_idx_sheet = sel_tuple[1]
             dados = sel_tuple[2]
@@ -507,7 +613,7 @@ with aba_edicao_aux:
     with ed_tab5:
         st.markdown("### Editar Produtor")
         if df_produtor.empty:
-            st.info("Nenhum produtor cadastrado para editar.")
+            st.info("Nenum produtor cadastrado para editar.")
         else:
             opts_pr = [(f"{r.get('Nome', '')} (Cód: {r.get('Código', '')})", idx + 2, r) for idx, r in df_produtor.iterrows()]
             sel_pr_opt = st.selectbox("Selecione o Produtor:", options=[opt[0] for opt in opts_pr], key="edit_produtor_select")
