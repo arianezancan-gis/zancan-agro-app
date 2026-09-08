@@ -12,8 +12,8 @@ SCOPES = [
     "https://www.googleapis.com/auth/drive"
 ]
 
-@st.cache_resource
 def get_gspread_client():
+    """Cria uma nova sessão autenticada do gspread sem armazenar objeto de sessão inválido no cache."""
     service_account_info = dict(st.secrets["gcp_service_account"])
     if "private_key" in service_account_info:
         service_account_info["private_key"] = service_account_info["private_key"].replace("\\n", "\n")
@@ -44,20 +44,28 @@ def load_all_data():
             except Exception:
                 ws = spreadsheet.get_worksheet(fallback_index)
             data = ws.get_all_records()
-            return ws, pd.DataFrame(data)
+            return pd.DataFrame(data)
 
-        ws_app, df_app = get_ws_and_df("Aplicação", 0)
-        ws_talhao, df_talhao = get_ws_and_df("Talhao", 1)
-        ws_produto, df_produto = get_ws_and_df("Produto", 2)
-        ws_produtor, df_produtor = get_ws_and_df("Produtor", 3)
-        ws_tp, df_tp = get_ws_and_df("TpAplicação", 4)
-        ws_cultura, df_cultura = get_ws_and_df("Cultura", 5)
+        df_app = get_ws_and_df("Aplicação", 0)
+        df_talhao = get_ws_and_df("Talhao", 1)
+        df_produto = get_ws_and_df("Produto", 2)
+        df_produtor = get_ws_and_df("Produtor", 3)
+        df_tp = get_ws_and_df("TpAplicação", 4)
+        df_cultura = get_ws_and_df("Cultura", 5)
 
-        return (ws_app, df_app, ws_talhao, df_talhao, ws_produto, df_produto, 
-                ws_produtor, df_produtor, ws_tp, df_tp, ws_cultura, df_cultura)
+        return (df_app, df_talhao, df_produto, df_produtor, df_tp, df_cultura)
     except Exception as e:
-        st.error(f"Erro ao conectar com o Google Drive: {e}")
-        return [None, pd.DataFrame()] * 6
+        st.error(f"Erro ao carregar dados do Google Drive: {e}")
+        return [pd.DataFrame()] * 6
+
+def get_worksheet_handle(sheet_name, fallback_index=0):
+    """Obtém o ponteiro da aba atualizado em tempo real para gravação."""
+    client = get_gspread_client()
+    spreadsheet = client.open("ZancanAgro")
+    try:
+        return spreadsheet.worksheet(sheet_name)
+    except Exception:
+        return spreadsheet.get_worksheet(fallback_index)
 
 # ---------------------------------------------------------
 # 2. INTERFACE E CARREGAMENTO DE DADOS
@@ -65,8 +73,7 @@ def load_all_data():
 st.set_page_config(page_title="ZancanAgro - Sistema de Gestão", layout="wide")
 st.title("🌱 ZancanAgro - Lançamento de Aplicações")
 
-(ws_app, df_app, ws_talhao, df_talhao, ws_produto, df_produto, 
- ws_produtor, df_produtor, ws_tp, df_tp, ws_cultura, df_cultura) = load_all_data()
+(df_app, df_talhao, df_produto, df_produtor, df_tp, df_cultura) = load_all_data()
 
 # Tratamento e preparação de listas auxiliares
 lista_produtores = sorted(df_produtor["Nome"].dropna().astype(str).unique()) if not df_produtor.empty else ["Mauricio"]
@@ -93,7 +100,6 @@ with aba_cadastro:
                 opcoes_talhao = []
                 
             talhao_sel = st.selectbox("Talhão / Área", options=opcoes_talhao if opcoes_talhao else ["Padrão"])
-            
             tipo_sel = st.selectbox("Tipo de Aplicação", options=lista_tipos)
             
         with col2:
@@ -121,24 +127,26 @@ with aba_cadastro:
         if btn_salvar:
             if not produto_sel or dose_ha <= 0:
                 st.error("Selecione um produto e preencha uma dose maior que zero.")
-            elif ws_app is None:
-                st.error("Erro na conexão com a planilha no Google Drive.")
             else:
-                # Formata linha no padrão da aba Aplicação
-                nova_linha = [
-                    produtor_sel,
-                    talhao_sel,
-                    tipo_sel,
-                    produto_sel,
-                    str(dose_ha).replace(".", ","),
-                    str(round(volume_total, 2)).replace(".", ",") if volume_total > 0 else "",
-                    data_aplicacao.strftime("%d/%m/%Y")
-                ]
-                
-                ws_app.append_row(nova_linha)
-                st.success("✅ Aplicação registrada com sucesso!")
-                st.cache_data.clear()
-                st.rerun()
+                try:
+                    ws_app = get_worksheet_handle("Aplicação", 0)
+                    
+                    nova_linha = [
+                        produtor_sel,
+                        talhao_sel,
+                        tipo_sel,
+                        produto_sel,
+                        str(dose_ha).replace(".", ","),
+                        str(round(volume_total, 2)).replace(".", ",") if volume_total > 0 else "",
+                        data_aplicacao.strftime("%d/%m/%Y")
+                    ]
+                    
+                    ws_app.append_row(nova_linha, value_input_option="USER_ENTERED")
+                    st.success("✅ Aplicação registrada com sucesso na planilha!")
+                    st.cache_data.clear()
+                    st.rerun()
+                except Exception as ex:
+                    st.error(f"Erro ao gravar no Google Drive: {ex}")
 
 # --- ABA 2: HISTÓRICO DE APLICAÇÕES ---
 with aba_historico:
@@ -164,21 +172,29 @@ with aba_auxiliares:
         with st.form("form_novo_prod"):
             novo_prod_nome = st.text_input("Nome do Produto")
             if st.form_submit_button("Cadastrar Produto"):
-                if novo_prod_nome and ws_produto:
-                    proximo_codigo = len(df_produto) + 1
-                    ws_produto.append_row([proximo_codigo, novo_prod_nome])
-                    st.success(f"Produto '{novo_prod_nome}' cadastrado!")
-                    st.cache_data.clear()
-                    st.rerun()
+                if novo_prod_nome:
+                    try:
+                        ws_produto = get_worksheet_handle("Produto", 2)
+                        proximo_codigo = len(df_produto) + 1
+                        ws_produto.append_row([proximo_codigo, novo_prod_nome], value_input_option="USER_ENTERED")
+                        st.success(f"Produto '{novo_prod_nome}' cadastrado!")
+                        st.cache_data.clear()
+                        st.rerun()
+                    except Exception as ex:
+                        st.error(f"Erro ao salvar produto: {ex}")
 
     with col_b:
         st.markdown("### ➕ Novo Produtor")
         with st.form("form_novo_produtor"):
             novo_produtor_nome = st.text_input("Nome do Produtor")
             if st.form_submit_button("Cadastrar Produtor"):
-                if novo_produtor_nome and ws_produtor:
-                    proximo_codigo = len(df_produtor) + 1
-                    ws_produtor.append_row([proximo_codigo, novo_produtor_nome])
-                    st.success(f"Produtor '{novo_produtor_nome}' cadastrado!")
-                    st.cache_data.clear()
-                    st.rerun()
+                if novo_produtor_nome:
+                    try:
+                        ws_produtor = get_worksheet_handle("Produtor", 3)
+                        proximo_codigo = len(df_produtor) + 1
+                        ws_produtor.append_row([proximo_codigo, novo_produtor_nome], value_input_option="USER_ENTERED")
+                        st.success(f"Produtor '{novo_produtor_nome}' cadastrado!")
+                        st.cache_data.clear()
+                        st.rerun()
+                    except Exception as ex:
+                        st.error(f"Erro ao salvar produtor: {ex}")
