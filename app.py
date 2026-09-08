@@ -31,7 +31,7 @@ def parse_float(val):
     except ValueError:
         return 0.0
 
-@st.cache_data(ttl=60)
+@st.cache_data(ttl=30)
 def load_all_data():
     try:
         client = get_gspread_client()
@@ -69,12 +69,12 @@ def get_worksheet_handle(sheet_name, fallback_index=0):
 # ---------------------------------------------------------
 # 2. INTERFACE E CARREGAMENTO DE DADOS
 # ---------------------------------------------------------
-st.set_page_config(page_title="ZancanAgro - Sistema de Gestão", layout="wide")
+st.set_page_config(page_title="ZancanAgro - Gestão", layout="wide")
 st.title("🌱 ZancanAgro - Lançamento de Aplicações")
 
 (df_app, df_talhao, df_produto, df_produtor, df_tp, df_cultura) = load_all_data()
 
-# Tratamento e limpeza das listas base
+# Listas base
 if not df_produtor.empty and "Nome" in df_produtor.columns:
     lista_produtores = sorted(df_produtor["Nome"].dropna().astype(str).str.strip().unique().tolist())
     lista_produtores = [p for p in lista_produtores if p]
@@ -103,7 +103,7 @@ with aba_cadastro:
     with col_prod:
         produtor_sel = st.selectbox("1. Selecione o Produtor", options=lista_produtores, key="produtor_select")
 
-    # Filtro de Talhões baseados no Produtor selecionado
+    # Filtro de Talhões
     opcoes_talhao = []
     if not df_talhao.empty and "Produtor" in df_talhao.columns and "Nome da Área" in df_talhao.columns:
         df_talhao_filtrado = df_talhao[
@@ -112,7 +112,7 @@ with aba_cadastro:
         opcoes_talhao = sorted(df_talhao_filtrado["Nome da Área"].dropna().astype(str).str.strip().unique().tolist())
         opcoes_talhao = [t for t in opcoes_talhao if t]
 
-    with st.form("form_aplicacao", clear_on_submit=True):
+    with st.form("form_aplicacao", clear_on_submit=False):
         col1, col2 = st.columns(2)
         
         with col1:
@@ -127,7 +127,7 @@ with aba_cadastro:
             dose_ha = st.number_input("5. Dose/ha (L ou Kg)", min_value=0.0, step=0.01, format="%.2f")
             data_aplicacao = st.date_input("6. Data da Aplicação", value=date.today())
 
-        # Busca da área pulverizada internamente para cálculo do volume
+        # Cálculo interno da área pulverizada
         area_ha = 0.0
         if not df_talhao.empty and talhao_sel in opcoes_talhao:
             row_t = df_talhao[
@@ -139,41 +139,42 @@ with aba_cadastro:
 
         volume_total = dose_ha * area_ha
         if volume_total > 0:
-            st.info(f"💡 **Volume Total Calculado:** {volume_total:.2f} (L ou Kg) — *Considerando {area_ha} ha do talhão*")
+            st.info(f"💡 **Volume Total Calculado:** {volume_total:.2f} (L ou Kg) — *Área cadastrada: {area_ha} ha*")
 
         btn_salvar = st.form_submit_button("Salvar no Google Drive")
         
         if btn_salvar:
             if not opcoes_talhao or talhao_sel not in opcoes_talhao:
-                st.error("Selecione um talhão válido associado ao produtor.")
+                st.error("⚠️ Selecione um talhão válido associado ao produtor.")
             elif not produto_sel or dose_ha <= 0:
-                st.error("Selecione um produto e preencha uma dose maior que zero.")
+                st.error("⚠️ Selecione um produto e informe uma dose maior que zero.")
             else:
-                try:
-                    ws_app = get_worksheet_handle("Aplicação", 0)
-                    
-                    nova_linha = [
-                        produtor_sel,
-                        talhao_sel,
-                        tipo_sel,
-                        produto_sel,
-                        str(dose_ha).replace(".", ","),
-                        str(round(volume_total, 2)).replace(".", ",") if volume_total > 0 else "",
-                        data_aplicacao.strftime("%d/%m/%Y")
-                    ]
-                    
-                    ws_app.append_row(nova_linha, value_input_option="USER_ENTERED")
-                    st.success("✅ Aplicação registrada com sucesso na planilha!")
-                    st.cache_data.clear()
-                    st.rerun()
-                except Exception as ex:
-                    st.error(f"Erro ao gravar no Google Drive: {ex}")
+                with st.spinner("Gravando dados no Google Drive..."):
+                    try:
+                        ws_app = get_worksheet_handle("Aplicação", 0)
+                        
+                        nova_linha = [
+                            str(produtor_sel),
+                            str(talhao_sel),
+                            str(tipo_sel),
+                            str(produto_sel),
+                            str(dose_ha).replace(".", ","),
+                            str(round(volume_total, 2)).replace(".", ",") if volume_total > 0 else "",
+                            data_aplicacao.strftime("%d/%m/%Y")
+                        ]
+                        
+                        ws_app.append_row(nova_linha, value_input_option="USER_ENTERED")
+                        
+                        st.cache_data.clear()
+                        st.success("✅ Registro gravado com sucesso no Google Drive!")
+                    except Exception as ex:
+                        st.error(f"❌ Falha ao gravar no Google Drive: {ex}")
 
 # --- ABA 2: HISTÓRICO DE APLICAÇÕES ---
 with aba_historico:
     st.subheader("Registros Salvos no Google Drive")
     
-    if st.button("🔄 Atualizar Tabela"):
+    if st.button("🔄 Recarregar Dados"):
         st.cache_data.clear()
         st.rerun()
 
@@ -198,9 +199,8 @@ with aba_auxiliares:
                         ws_produto = get_worksheet_handle("Produto", 2)
                         proximo_codigo = len(df_produto) + 1
                         ws_produto.append_row([proximo_codigo, novo_prod_nome], value_input_option="USER_ENTERED")
-                        st.success(f"Produto '{novo_prod_nome}' cadastrado!")
                         st.cache_data.clear()
-                        st.rerun()
+                        st.success(f"Produto '{novo_prod_nome}' cadastrado!")
                     except Exception as ex:
                         st.error(f"Erro ao salvar produto: {ex}")
 
@@ -214,8 +214,7 @@ with aba_auxiliares:
                         ws_produtor = get_worksheet_handle("Produtor", 3)
                         proximo_codigo = len(df_produtor) + 1
                         ws_produtor.append_row([proximo_codigo, novo_produtor_nome], value_input_option="USER_ENTERED")
-                        st.success(f"Produtor '{novo_produtor_nome}' cadastrado!")
                         st.cache_data.clear()
-                        st.rerun()
+                        st.success(f"Produtor '{novo_produtor_nome}' cadastrado!")
                     except Exception as ex:
                         st.error(f"Erro ao salvar produtor: {ex}")
