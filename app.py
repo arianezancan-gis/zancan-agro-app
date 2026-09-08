@@ -126,6 +126,9 @@ with aba_cadastro:
         dose_ha = st.number_input("5. Dose/ha (L ou Kg)", min_value=0.0, step=0.01, format="%.2f")
         data_aplicacao = st.date_input("6. Data da Aplicação", value=date.today())
 
+    # Seleção da coluna de área baseada no Tipo de Aplicação
+    coluna_area = "Área do Plantio" if str(tipo_sel).strip().lower() == "plantio" else "Área Pulverizada"
+
     # Cálculo reativo da área e do volume em tempo real
     area_ha = 0.0
     if not df_talhao.empty and talhao_sel in opcoes_talhao:
@@ -133,16 +136,16 @@ with aba_cadastro:
             (df_talhao["Produtor"].astype(str).str.strip().str.upper() == str(produtor_sel).strip().upper()) & 
             (df_talhao["Nome da Área"].astype(str).str.strip().str.upper() == str(talhao_sel).strip().upper())
         ]
-        if not row_t.empty and "Área Pulverizada" in row_t.columns:
-            area_ha = parse_float(row_t["Área Pulverizada"].values[0])
+        if not row_t.empty and coluna_area in row_t.columns:
+            area_ha = parse_float(row_t[coluna_area].values[0])
 
     volume_total = dose_ha * area_ha
 
-    # Exibição do cálculo antes de salvar
+    # Exibição do cálculo e indicação da área utilizada
     if dose_ha > 0 and area_ha > 0:
-        st.info(f"🧪 **Volume Total Calculado:** **{volume_total:,.2f}** (L ou Kg)  *(Dose: {dose_ha} × Área do Talhão: {area_ha} ha)*")
+        st.info(f"🧪 **Volume Total Calculado:** **{volume_total:,.2f}** (L ou Kg)  *(Dose: {dose_ha} × {coluna_area}: {area_ha} ha)*")
     elif dose_ha > 0 and area_ha == 0:
-        st.warning("⚠️ O talhão selecionado não possui a 'Área Pulverizada' preenchida na aba Talhao.")
+        st.warning(f"⚠️ O talhão selecionado não possui o valor de **{coluna_area}** preenchido na aba Talhao.")
 
     st.write("") # Espaçamento
     btn_salvar = st.button("💾 Salvar no Google Drive", type="primary")
