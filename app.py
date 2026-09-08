@@ -13,7 +13,6 @@ SCOPES = [
 ]
 
 def get_gspread_client():
-    """Cria uma nova sessão autenticada do gspread sem armazenar objeto de sessão inválido no cache."""
     service_account_info = dict(st.secrets["gcp_service_account"])
     if "private_key" in service_account_info:
         service_account_info["private_key"] = service_account_info["private_key"].replace("\\n", "\n")
@@ -59,7 +58,6 @@ def load_all_data():
         return [pd.DataFrame()] * 6
 
 def get_worksheet_handle(sheet_name, fallback_index=0):
-    """Obtém o ponteiro da aba atualizado em tempo real para gravação."""
     client = get_gspread_client()
     spreadsheet = client.open("ZancanAgro")
     try:
@@ -75,10 +73,21 @@ st.title("🌱 ZancanAgro - Lançamento de Aplicações")
 
 (df_app, df_talhao, df_produto, df_produtor, df_tp, df_cultura) = load_all_data()
 
-# Tratamento e preparação de listas auxiliares
-lista_produtores = sorted(df_produtor["Nome"].dropna().astype(str).unique()) if not df_produtor.empty else ["Mauricio"]
-lista_produtos = sorted(df_produto["Nome"].dropna().astype(str).unique()) if not df_produto.empty else []
-lista_tipos = sorted(df_tp["Nome"].dropna().astype(str).unique()) if not df_tp.empty else ["Dessecação", "Plantio", "Limpa", "Fungicida 1"]
+# Tratamento e limpeza das listas
+if not df_produtor.empty and "Nome" in df_produtor.columns:
+    lista_produtores = sorted(df_produtor["Nome"].dropna().astype(str).str.strip().unique().tolist())
+else:
+    lista_produtores = ["Mauricio"]
+
+if not df_produto.empty and "Nome" in df_produto.columns:
+    lista_produtos = sorted(df_produto["Nome"].dropna().astype(str).str.strip().unique().tolist())
+else:
+    lista_produtos = []
+
+if not df_tp.empty and "Nome" in df_tp.columns:
+    lista_tipos = sorted(df_tp["Nome"].dropna().astype(str).str.strip().unique().tolist())
+else:
+    lista_tipos = ["Dessecação", "Plantio", "Limpa", "Fungicida 1"]
 
 aba_cadastro, aba_historico, aba_auxiliares = st.tabs(["📝 Cadastrar Aplicação", "📊 Histórico de Aplicações", "⚙️ Cadastros Auxiliares"])
 
@@ -86,38 +95,47 @@ aba_cadastro, aba_historico, aba_auxiliares = st.tabs(["📝 Cadastrar Aplicaç�
 with aba_cadastro:
     st.subheader("Nova Aplicação de Insumos")
     
+    col_prod, col_info = st.columns([1, 2])
+    with col_prod:
+        produtor_sel = st.selectbox("1. Selecione o Produtor", options=lista_produtores)
+
+    # Lógica de busca dos talhões com tratamento de espaços
+    opcoes_talhao = []
+    if not df_talhao.empty and "Produtor" in df_talhao.columns and "Nome da Área" in df_talhao.columns:
+        df_talhao_filtered = df_talhao[
+            df_talhao["Produtor"].astype(str).str.strip().str.upper() == str(produtor_sel).strip().upper()
+        ]
+        opcoes_talhao = sorted(df_talhao_filtered["Nome da Área"].dropna().astype(str).str.strip().unique().tolist())
+
+    if not opcoes_talhao:
+        # Fallback para mostrar todos os talhões caso o filtro por produtor falhe
+        if not df_talhao.empty and "Nome da Área" in df_talhao.columns:
+            opcoes_talhao = sorted(df_talhao["Nome da Área"].dropna().astype(str).str.strip().unique().tolist())
+
     with st.form("form_aplicacao", clear_on_submit=True):
         col1, col2 = st.columns(2)
         
         with col1:
-            produtor_sel = st.selectbox("Produtor", options=lista_produtores)
-            
-            # Filtra os talhões pertencentes ao produtor selecionado
-            if not df_talhao.empty and "Produtor" in df_talhao.columns:
-                df_talhao_prod = df_talhao[df_talhao["Produtor"].astype(str) == str(produtor_sel)]
-                opcoes_talhao = df_talhao_prod["Nome da Área"].dropna().astype(str).unique().tolist()
-            else:
-                opcoes_talhao = []
-                
-            talhao_sel = st.selectbox("Talhão / Área", options=opcoes_talhao if opcoes_talhao else ["Padrão"])
-            tipo_sel = st.selectbox("Tipo de Aplicação", options=lista_tipos)
+            talhao_sel = st.selectbox("2. Talhão / Área", options=opcoes_talhao if opcoes_talhao else ["Nenhum talhão encontrado"])
+            tipo_sel = st.selectbox("3. Tipo de Aplicação", options=lista_tipos)
+            produto_sel = st.selectbox("4. Produto / Insumo", options=lista_produtos)
             
         with col2:
-            produto_sel = st.selectbox("Produto / Insumo", options=lista_produtos)
-            dose_ha = st.number_input("Dose/ha (L ou Kg)", min_value=0.0, step=0.01, format="%.2f")
+            dose_ha = st.number_input("5. Dose/ha (L ou Kg)", min_value=0.0, step=0.01, format="%.2f")
             
-            # Busca a Área Pulverizada cadastrada para o Talhão
+            # Busca área pulverizada
             area_pulverizada = 0.0
             if not df_talhao.empty and talhao_sel in opcoes_talhao:
-                row_t = df_talhao[(df_talhao["Produtor"].astype(str) == str(produtor_sel)) & 
-                                 (df_talhao["Nome da Área"].astype(str) == str(talhao_sel))]
+                row_t = df_talhao[
+                    (df_talhao["Produtor"].astype(str).str.strip().str.upper() == str(produtor_sel).strip().upper()) & 
+                    (df_talhao["Nome da Área"].astype(str).str.strip().str.upper() == str(talhao_sel).strip().upper())
+                ]
                 if not row_t.empty and "Área Pulverizada" in row_t.columns:
                     area_pulverizada = parse_float(row_t["Área Pulverizada"].values[0])
 
-            area_ha = st.number_input("Área Pulverizada (ha)", value=area_pulverizada, min_value=0.0, step=0.1)
-            data_aplicacao = st.date_input("Data da Aplicação", value=date.today())
+            area_ha = st.number_input("6. Área Pulverizada (ha)", value=area_pulverizada, min_value=0.0, step=0.1)
+            data_aplicacao = st.date_input("7. Data da Aplicação", value=date.today())
 
-        # Cálculo do Volume Total
         volume_total = dose_ha * area_ha
         if volume_total > 0:
             st.info(f"💡 **Volume Total Estimado:** {volume_total:.2f} (L ou Kg)")
