@@ -44,7 +44,6 @@ def load_all_data():
                 ws = spreadsheet.get_worksheet(fallback_index)
             data = ws.get_all_records()
             df = pd.DataFrame(data)
-            # Remove linhas completamente vazias
             return df.dropna(how="all")
 
         df_app = get_df("Aplicação", 0)
@@ -100,12 +99,11 @@ aba_cadastro, aba_historico, aba_auxiliares = st.tabs(["📝 Cadastrar Aplicaç�
 with aba_cadastro:
     st.subheader("Nova Aplicação de Insumos")
     
-    # 1. Seleção de Produtor fora do form para atualizar instantaneamente os Talhões
     col_prod, _ = st.columns([1, 2])
     with col_prod:
         produtor_sel = st.selectbox("1. Selecione o Produtor", options=lista_produtores, key="produtor_select")
 
-    # 2. Filtro estrito de Talhões por Produtor (aba 'Talhao')
+    # Filtro de Talhões baseados no Produtor selecionado
     opcoes_talhao = []
     if not df_talhao.empty and "Produtor" in df_talhao.columns and "Nome da Área" in df_talhao.columns:
         df_talhao_filtrado = df_talhao[
@@ -123,27 +121,25 @@ with aba_cadastro:
                 options=opcoes_talhao if opcoes_talhao else ["Nenhum talhão cadastrado para este produtor"]
             )
             tipo_sel = st.selectbox("3. Tipo de Aplicação", options=lista_tipos)
-            produto_sel = st.selectbox("4. Produto / Insumo", options=lista_produtos)
             
         with col2:
+            produto_sel = st.selectbox("4. Produto / Insumo", options=lista_produtos)
             dose_ha = st.number_input("5. Dose/ha (L ou Kg)", min_value=0.0, step=0.01, format="%.2f")
-            
-            # Busca automática da Área Pulverizada correspondente ao Talhão selecionado
-            area_pulverizada = 0.0
-            if not df_talhao.empty and talhao_sel in opcoes_talhao:
-                row_t = df_talhao[
-                    (df_talhao["Produtor"].astype(str).str.strip().str.upper() == str(produtor_sel).strip().upper()) & 
-                    (df_talhao["Nome da Área"].astype(str).str.strip().str.upper() == str(talhao_sel).strip().upper())
-                ]
-                if not row_t.empty and "Área Pulverizada" in row_t.columns:
-                    area_pulverizada = parse_float(row_t["Área Pulverizada"].values[0])
+            data_aplicacao = st.date_input("6. Data da Aplicação", value=date.today())
 
-            area_ha = st.number_input("6. Área Pulverizada (ha)", value=area_pulverizada, min_value=0.0, step=0.1)
-            data_aplicacao = st.date_input("7. Data da Aplicação", value=date.today())
+        # Busca da área pulverizada internamente para cálculo do volume
+        area_ha = 0.0
+        if not df_talhao.empty and talhao_sel in opcoes_talhao:
+            row_t = df_talhao[
+                (df_talhao["Produtor"].astype(str).str.strip().str.upper() == str(produtor_sel).strip().upper()) & 
+                (df_talhao["Nome da Área"].astype(str).str.strip().str.upper() == str(talhao_sel).strip().upper())
+            ]
+            if not row_t.empty and "Área Pulverizada" in row_t.columns:
+                area_ha = parse_float(row_t["Área Pulverizada"].values[0])
 
         volume_total = dose_ha * area_ha
         if volume_total > 0:
-            st.info(f"💡 **Volume Total Estimado:** {volume_total:.2f} (L ou Kg)")
+            st.info(f"💡 **Volume Total Calculado:** {volume_total:.2f} (L ou Kg) — *Considerando {area_ha} ha do talhão*")
 
         btn_salvar = st.form_submit_button("Salvar no Google Drive")
         
