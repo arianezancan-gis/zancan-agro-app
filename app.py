@@ -94,13 +94,12 @@ st.title("🌱 ZancanAgro - Lançamento de Aplicações")
 
 (df_app, df_talhao, df_produto, df_produtor, df_tp, df_cultura) = load_all_data()
 
-# Inicialização de chaves de controle no session_state para limpar os campos
+# Controle de sessão para mensagem de sucesso e valor da dose
 if "dose_input" not in st.session_state:
     st.session_state.dose_input = 0.0
 
-def reset_form_aplicacao():
-    """Função para redefinir os campos após o salvamento."""
-    st.session_state.dose_input = 0.0
+if "msg_sucesso" not in st.session_state:
+    st.session_state.msg_sucesso = ""
 
 # Listas base
 if not df_produtor.empty and "Nome" in df_produtor.columns:
@@ -133,11 +132,15 @@ aba_cadastro, aba_historico, aba_auxiliares = st.tabs(["📝 Cadastrar Aplicaç�
 with aba_cadastro:
     st.subheader("Nova Aplicação de Insumos")
     
+    # Exibe mensagem de sucesso vinda do redirecionamento
+    if st.session_state.msg_sucesso:
+        st.success(st.session_state.msg_sucesso)
+        st.session_state.msg_sucesso = ""
+
     col_prod, _ = st.columns([1, 2])
     with col_prod:
         produtor_sel = st.selectbox("1. Selecione o Produtor", options=lista_produtores, key="produtor_select")
 
-    # Filtro de Talhões baseado no Produtor
     opcoes_talhao = []
     if not df_talhao.empty and "Produtor" in df_talhao.columns and "Nome da Área" in df_talhao.columns:
         df_talhao_filtrado = df_talhao[
@@ -207,8 +210,8 @@ with aba_cadastro:
                     ws_app.append_row(nova_linha, value_input_option="USER_ENTERED")
                     
                     st.cache_data.clear()
-                    reset_form_aplicacao() # Reseta a dose para zero
-                    st.success("✅ Registro gravado com sucesso no Google Drive!")
+                    st.session_state.dose_input = 0.0
+                    st.session_state.msg_sucesso = "✅ Aplicação registrada com sucesso no Google Drive!"
                     st.rerun()
                 except Exception as ex:
                     st.error(f"❌ Falha ao gravar no Google Drive: {ex}")
@@ -271,8 +274,7 @@ with aba_auxiliares:
                         ]
                         ws_talhao.append_row(nova_linha_t, value_input_option="USER_ENTERED")
                         st.cache_data.clear()
-                        st.success(f"Talhão '{t_nome}' cadastrado com sucesso!")
-                        st.rerun()
+                        st.success(f"✅ Talhão '{t_nome}' cadastrado com sucesso!")
                     except Exception as ex:
                         st.error(f"Erro ao cadastrar talhão: {ex}")
                 else:
@@ -291,8 +293,7 @@ with aba_auxiliares:
                         prox_codigo = len(df_cultura) + 1
                         ws_cultura.append_row([prox_codigo, c_nome.strip()], value_input_option="USER_ENTERED")
                         st.cache_data.clear()
-                        st.success(f"Cultura '{c_nome}' cadastrada!")
-                        st.rerun()
+                        st.success(f"✅ Cultura '{c_nome}' cadastrada com sucesso!")
                     except Exception as ex:
                         st.error(f"Erro ao cadastrar cultura: {ex}")
                 else:
@@ -311,8 +312,7 @@ with aba_auxiliares:
                         prox_codigo = len(df_tp) + 1
                         ws_tp.append_row([prox_codigo, tp_nome.strip()], value_input_option="USER_ENTERED")
                         st.cache_data.clear()
-                        st.success(f"Tipo de Aplicação '{tp_nome}' cadastrado!")
-                        st.rerun()
+                        st.success(f"✅ Tipo de Aplicação '{tp_nome}' cadastrado com sucesso!")
                     except Exception as ex:
                         st.error(f"Erro ao cadastrar tipo de aplicação: {ex}")
                 else:
@@ -330,8 +330,7 @@ with aba_auxiliares:
                         proximo_codigo = len(df_produto) + 1
                         ws_produto.append_row([proximo_codigo, novo_prod_nome.strip()], value_input_option="USER_ENTERED")
                         st.cache_data.clear()
-                        st.success(f"Produto '{novo_prod_nome}' cadastrado!")
-                        st.rerun()
+                        st.success(f"✅ Produto '{novo_prod_nome}' cadastrado com sucesso!")
                     except Exception as ex:
                         st.error(f"Erro ao salvar produto: {ex}")
                 else:
@@ -349,8 +348,7 @@ with aba_auxiliares:
                         proximo_codigo = len(df_produtor) + 1
                         ws_produtor.append_row([proximo_codigo, novo_produtor_nome.strip()], value_input_option="USER_ENTERED")
                         st.cache_data.clear()
-                        st.success(f"Produtor '{novo_produtor_nome}' cadastrado!")
-                        st.rerun()
+                        st.success(f"✅ Produtor '{novo_produtor_nome}' cadastrado com sucesso!")
                     except Exception as ex:
                         st.error(f"Erro ao salvar produtor: {ex}")
                 else:
