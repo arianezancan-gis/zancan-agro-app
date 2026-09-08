@@ -86,6 +86,14 @@ def get_worksheet_handle(sheet_name, fallback_index=0):
     except Exception:
         return spreadsheet.get_worksheet(fallback_index)
 
+def atualizar_linha_gspread(sheet_name, fallback_index, num_linha_planilha, nova_linha):
+    """Atualiza uma linha inteira na planilha do Google Sheets."""
+    ws = get_worksheet_handle(sheet_name, fallback_index)
+    # Ex: A2:H2 para a segunda linha
+    col_final = chr(ord('A') + len(nova_linha) - 1)
+    cell_range = f"A{num_linha_planilha}:{col_final}{num_linha_planilha}"
+    ws.update(cell_range, [nova_linha], value_input_option="USER_ENTERED")
+
 # ---------------------------------------------------------
 # 2. INTERFACE E CARREGAMENTO DE DADOS
 # ---------------------------------------------------------
@@ -126,13 +134,17 @@ if not df_cultura.empty and "Nome" in df_cultura.columns:
 else:
     lista_culturas = ["Soja", "Milho", "Trigo"]
 
-aba_cadastro, aba_historico, aba_auxiliares = st.tabs(["📝 Cadastrar Aplicação", "📊 Histórico de Aplicações", "⚙️ Cadastros Auxiliares"])
+aba_cadastro, aba_historico, aba_auxiliares, aba_edicao_aux = st.tabs([
+    "📝 Cadastrar Aplicação", 
+    "📊 Histórico de Aplicações", 
+    "⚙️ Cadastros Auxiliares",
+    "✏️ Editar Cadastros Auxiliares"
+])
 
 # --- ABA 1: CADASTRO DE APLICAÇÕES ---
 with aba_cadastro:
     st.subheader("Nova Aplicação de Insumos")
     
-    # Exibe a mensagem de sucesso caso exista no estado da sessão
     if st.session_state.msg_sucesso:
         st.success(st.session_state.msg_sucesso)
         st.session_state.msg_sucesso = ""
@@ -186,7 +198,6 @@ with aba_cadastro:
 
     st.write("")
     
-    # Função para processar a gravação no Google Drive
     def gravar_aplicacao():
         if not opcoes_talhao or talhao_sel not in opcoes_talhao:
             st.error("⚠️ Selecione um talhão válido associado ao produtor.")
@@ -208,7 +219,6 @@ with aba_cadastro:
                 
                 ws_app.append_row(nova_linha, value_input_option="USER_ENTERED")
                 
-                # Zera o campo de dose com segurança antes da atualização da página
                 st.session_state.dose_input = 0.0
                 st.session_state.msg_sucesso = "✅ Aplicação registrada com sucesso no Google Drive!"
                 st.cache_data.clear()
@@ -230,7 +240,7 @@ with aba_historico:
     else:
         st.info("Nenhuma aplicação cadastrada até o momento.")
 
-# --- ABA 3: CADASTROS AUXILIARES ---
+# --- ABA 3: CADASTROS AUXILIARES (INSERÇÃO) ---
 with aba_auxiliares:
     st.subheader("⚙️ Cadastros do Sistema")
     
@@ -354,3 +364,165 @@ with aba_auxiliares:
                         st.error(f"Erro ao salvar produtor: {ex}")
                 else:
                     st.warning("Informe o nome do produtor.")
+
+# --- ABA 4: EDIÇÃO DE CADASTROS AUXILIARES ---
+with aba_edicao_aux:
+    st.subheader("✏️ Editar Registros Auxiliares")
+    
+    ed_tab1, ed_tab2, ed_tab3, ed_tab4, ed_tab5 = st.tabs([
+        "📍 Editar Talhão", 
+        "🌾 Editar Cultura", 
+        "📋 Editar Tipo de Aplicação", 
+        "📦 Editar Insumo/Produto", 
+        "👤 Editar Produtor"
+    ])
+    
+    # 1. EDIÇÃO DE TALHÃO
+    with ed_tab1:
+        st.markdown("### Editar Talhão")
+        if df_talhao.empty:
+            st.info("Nenhum talhão cadastrado para editar.")
+        else:
+            options_talhoes = []
+            for idx, r in df_talhao.iterrows():
+                # Indice da planilha = idx + 2 (cabecalho na linha 1)
+                options_talhoes.append((f"{r.get('Produtor', '')} - {r.get('Nome da Área', '')} (Cód: {r.get('Código', '')})", idx + 2, r))
+            
+            sel_talhao_opt = st.selectbox(
+                "Selecione o Talhão para Editar:", 
+                options=[opt[0] for opt in options_talhoes],
+                key="edit_talhao_select"
+            )
+            
+            # Dados selecionados
+            sel_tuple = [opt for opt in options_talhoes if opt[0] == sel_talhao_opt][0]
+            row_idx_sheet = sel_tuple[1]
+            dados = sel_tuple[2]
+
+            with st.form("form_edit_talhao"):
+                col1, col2 = st.columns(2)
+                with col1:
+                    e_codigo = st.text_input("Código", value=str(dados.get("Código", "")), disabled=True)
+                    e_produtor = st.selectbox("Produtor", options=lista_produtores, index=lista_produtores.index(dados.get("Produtor", "")) if dados.get("Produtor", "") in lista_produtores else 0)
+                    e_nome = st.text_input("Nome da Área / Talhão", value=str(dados.get("Nome da Área", "")))
+                    e_cultura = st.selectbox("Cultura Inicial", options=lista_culturas, index=lista_culturas.index(dados.get("Cultura Inicial", "")) if dados.get("Cultura Inicial", "") in lista_culturas else 0)
+                with col2:
+                    e_area_real = st.number_input("Área Real (ha)", value=parse_float(dados.get("Área Real", 0)), step=0.1, format="%.2f")
+                    e_area_plantio = st.number_input("Área do Plantio (ha)", value=parse_float(dados.get("Área do Plantio", 0)), step=0.1, format="%.2f")
+                    e_area_pulv = st.number_input("Área Pulverizada (ha)", value=parse_float(dados.get("Área Pulverizada", 0)), step=0.1, format="%.2f")
+                    e_area_disp = st.number_input("Área Dispersão (ha)", value=parse_float(dados.get("Área Dispersão", 0)), step=0.1, format="%.2f")
+                
+                if st.form_submit_button("Atualizar Talhão no Google Drive"):
+                    try:
+                        nova_linha = [
+                            str(e_codigo),
+                            str(e_produtor),
+                            str(e_nome).strip(),
+                            str(e_cultura),
+                            str(e_area_real).replace(".", ","),
+                            str(e_area_plantio).replace(".", ","),
+                            str(e_area_pulv).replace(".", ","),
+                            str(e_area_disp).replace(".", ",")
+                        ]
+                        atualizar_linha_gspread("Talhao", 1, row_idx_sheet, nova_linha)
+                        st.cache_data.clear()
+                        st.success("✅ Talhão atualizado com sucesso!")
+                        st.rerun()
+                    except Exception as ex:
+                        st.error(f"Erro ao atualizar talhão: {ex}")
+
+    # 2. EDIÇÃO DE CULTURA
+    with ed_tab2:
+        st.markdown("### Editar Cultura")
+        if df_cultura.empty:
+            st.info("Nenhuma cultura cadastrada para editar.")
+        else:
+            opts_c = [(f"{r.get('Nome', '')} (Cód: {r.get('Código', '')})", idx + 2, r) for idx, r in df_cultura.iterrows()]
+            sel_c_opt = st.selectbox("Selecione a Cultura:", options=[opt[0] for opt in opts_c], key="edit_cultura_select")
+            sel_tuple_c = [opt for opt in opts_c if opt[0] == sel_c_opt][0]
+            row_idx_c, dados_c = sel_tuple_c[1], sel_tuple_c[2]
+
+            with st.form("form_edit_cultura"):
+                ec_codigo = st.text_input("Código", value=str(dados_c.get("Código", "")), disabled=True)
+                ec_nome = st.text_input("Nome da Cultura", value=str(dados_c.get("Nome", "")))
+                if st.form_submit_button("Atualizar Cultura"):
+                    try:
+                        nova_linha = [str(ec_codigo), str(ec_nome).strip()]
+                        atualizar_linha_gspread("Cultura", 5, row_idx_c, nova_linha)
+                        st.cache_data.clear()
+                        st.success("✅ Cultura atualizada com sucesso!")
+                        st.rerun()
+                    except Exception as ex:
+                        st.error(f"Erro ao atualizar cultura: {ex}")
+
+    # 3. EDIÇÃO DE TIPO DE APLICAÇÃO
+    with ed_tab3:
+        st.markdown("### Editar Tipo de Aplicação")
+        if df_tp.empty:
+            st.info("Nenhum tipo de aplicação cadastrado para editar.")
+        else:
+            opts_tp = [(f"{r.get('Nome', '')} (Cód: {r.get('Código', '')})", idx + 2, r) for idx, r in df_tp.iterrows()]
+            sel_tp_opt = st.selectbox("Selecione o Tipo de Aplicação:", options=[opt[0] for opt in opts_tp], key="edit_tp_select")
+            sel_tuple_tp = [opt for opt in opts_tp if opt[0] == sel_tp_opt][0]
+            row_idx_tp, dados_tp = sel_tuple_tp[1], sel_tuple_tp[2]
+
+            with st.form("form_edit_tp"):
+                etp_codigo = st.text_input("Código", value=str(dados_tp.get("Código", "")), disabled=True)
+                etp_nome = st.text_input("Nome do Tipo de Aplicação", value=str(dados_tp.get("Nome", "")))
+                if st.form_submit_button("Atualizar Tipo de Aplicação"):
+                    try:
+                        nova_linha = [str(etp_codigo), str(etp_nome).strip()]
+                        atualizar_linha_gspread("TpAplicação", 4, row_idx_tp, nova_linha)
+                        st.cache_data.clear()
+                        st.success("✅ Tipo de Aplicação atualizado com sucesso!")
+                        st.rerun()
+                    except Exception as ex:
+                        st.error(f"Erro ao atualizar tipo de aplicação: {ex}")
+
+    # 4. EDIÇÃO DE PRODUTO
+    with ed_tab4:
+        st.markdown("### Editar Insumo / Produto")
+        if df_produto.empty:
+            st.info("Nenhum produto cadastrado para editar.")
+        else:
+            opts_p = [(f"{r.get('Nome', '')} (Cód: {r.get('Código', '')})", idx + 2, r) for idx, r in df_produto.iterrows()]
+            sel_p_opt = st.selectbox("Selecione o Produto:", options=[opt[0] for opt in opts_p], key="edit_prod_select")
+            sel_tuple_p = [opt for opt in opts_p if opt[0] == sel_p_opt][0]
+            row_idx_p, dados_p = sel_tuple_p[1], sel_tuple_p[2]
+
+            with st.form("form_edit_prod"):
+                ep_codigo = st.text_input("Código", value=str(dados_p.get("Código", "")), disabled=True)
+                ep_nome = st.text_input("Nome do Produto", value=str(dados_p.get("Nome", "")))
+                if st.form_submit_button("Atualizar Produto"):
+                    try:
+                        nova_linha = [str(ep_codigo), str(ep_nome).strip()]
+                        atualizar_linha_gspread("Produto", 2, row_idx_p, nova_linha)
+                        st.cache_data.clear()
+                        st.success("✅ Produto atualizado com sucesso!")
+                        st.rerun()
+                    except Exception as ex:
+                        st.error(f"Erro ao atualizar produto: {ex}")
+
+    # 5. EDIÇÃO DE PRODUTOR
+    with ed_tab5:
+        st.markdown("### Editar Produtor")
+        if df_produtor.empty:
+            st.info("Nenhum produtor cadastrado para editar.")
+        else:
+            opts_pr = [(f"{r.get('Nome', '')} (Cód: {r.get('Código', '')})", idx + 2, r) for idx, r in df_produtor.iterrows()]
+            sel_pr_opt = st.selectbox("Selecione o Produtor:", options=[opt[0] for opt in opts_pr], key="edit_produtor_select")
+            sel_tuple_pr = [opt for opt in opts_pr if opt[0] == sel_pr_opt][0]
+            row_idx_pr, dados_pr = sel_tuple_pr[1], sel_tuple_pr[2]
+
+            with st.form("form_edit_produtor"):
+                epr_codigo = st.text_input("Código", value=str(dados_pr.get("Código", "")), disabled=True)
+                epr_nome = st.text_input("Nome do Produtor", value=str(dados_pr.get("Nome", "")))
+                if st.form_submit_button("Atualizar Produtor"):
+                    try:
+                        nova_linha = [str(epr_codigo), str(epr_nome).strip()]
+                        atualizar_linha_gspread("Produtor", 3, row_idx_pr, nova_linha)
+                        st.cache_data.clear()
+                        st.success("✅ Produtor atualizado com sucesso!")
+                        st.rerun()
+                    except Exception as ex:
+                        st.error(f"Erro ao atualizar produtor: {ex}")
