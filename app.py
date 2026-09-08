@@ -33,13 +33,10 @@ def parse_float(val):
         return 0.0
 
     try:
-        # Trata números com vírgula decimal (ex: "30,86")
         if "," in s and "." not in s:
             s = s.replace(",", ".")
-        # Trata números no formato de milhar brasileiro (ex: "1.234,56")
         elif "," in s and "." in s:
             s = s.replace(".", "").replace(",", ".")
-            
         return float(s)
     except ValueError:
         return 0.0
@@ -56,7 +53,6 @@ def load_all_data():
             except Exception:
                 ws = spreadsheet.get_worksheet(fallback_index)
             
-            # Lê todos os valores como matriz de strings brutas para evitar perda de formatação
             rows = ws.get_all_values()
             if not rows:
                 return pd.DataFrame()
@@ -65,7 +61,6 @@ def load_all_data():
             data = rows[1:]
             df = pd.DataFrame(data, columns=headers)
             
-            # Limpa espaços extras em todas as células
             for col in df.columns:
                 df[col] = df[col].astype(str).str.strip()
                 
@@ -118,6 +113,12 @@ if not df_tp.empty and "Nome" in df_tp.columns:
 else:
     lista_tipos = ["Dessecação", "Plantio", "Limpa", "Fungicida 1"]
 
+if not df_cultura.empty and "Nome" in df_cultura.columns:
+    lista_culturas = sorted(df_cultura["Nome"].dropna().unique().tolist())
+    lista_culturas = [c for c in lista_culturas if c]
+else:
+    lista_culturas = ["Soja", "Milho", "Trigo"]
+
 aba_cadastro, aba_historico, aba_auxiliares = st.tabs(["📝 Cadastrar Aplicação", "📊 Histórico de Aplicações", "⚙️ Cadastros Auxiliares"])
 
 # --- ABA 1: CADASTRO DE APLICAÇÕES ---
@@ -151,10 +152,8 @@ with aba_cadastro:
         dose_ha = st.number_input("5. Dose/ha (L ou Kg)", min_value=0.0, step=0.01, format="%.2f")
         data_aplicacao = st.date_input("6. Data da Aplicação", value=date.today())
 
-    # Definição dinâmica da coluna de área (Plantio vs Outros)
     coluna_area = "Área do Plantio" if str(tipo_sel).strip().lower() == "plantio" else "Área Pulverizada"
 
-    # Busca do valor da área do talhão selecionado
     area_ha = 0.0
     valor_area_bruto = "0"
     if not df_talhao.empty and talhao_sel in opcoes_talhao:
@@ -168,11 +167,10 @@ with aba_cadastro:
 
     volume_total = dose_ha * area_ha
 
-    # Exibição do cálculo reativo
     if dose_ha > 0 and area_ha > 0:
         st.info(f"🧪 **Volume Total Calculado:** **{volume_total:,.2f}** (L ou Kg)  *(Dose: {dose_ha} × {coluna_area}: {area_ha} ha)*")
     elif dose_ha > 0 and area_ha == 0:
-        st.warning(f"⚠️ O valor lido para **{coluna_area}** foi `{valor_area_bruto}`. Verifique a coluna no cadastro do talhão.")
+        st.warning(f"⚠️ O valor lido para **{coluna_area}** foi `{valor_area_bruto}`. Verifique o cadastro do talhão.")
 
     st.write("")
     btn_salvar = st.button("💾 Salvar no Google Drive", type="primary")
@@ -220,38 +218,130 @@ with aba_historico:
 
 # --- ABA 3: CADASTROS AUXILIARES ---
 with aba_auxiliares:
-    st.subheader("Adicionar Novos Insumos ou Produtores")
+    st.subheader("⚙️ Cadastros do Sistema")
     
-    col_a, col_b = st.columns(2)
+    sub_tab1, sub_tab2, sub_tab3, sub_tab4, sub_tab5 = st.tabs([
+        "📍 Novo Talhão", 
+        "🌾 Nova Cultura", 
+        "📋 Novo Tipo de Aplicação", 
+        "📦 Novo Insumo/Produto", 
+        "👤 Novo Produtor"
+    ])
     
-    with col_a:
-        st.markdown("### ➕ Novo Produto")
+    # 1. CADASTRO DE TALHÃO
+    with sub_tab1:
+        st.markdown("### Cadastrar Novo Talhão / Área")
+        with st.form("form_novo_talhao"):
+            c1, c2 = st.columns(2)
+            with c1:
+                t_produtor = st.selectbox("Produtor", options=lista_produtores)
+                t_nome = st.text_input("Nome da Área / Talhão (ex: Gleba 01)")
+                t_cultura = st.selectbox("Cultura Inicial", options=lista_culturas)
+            with c2:
+                t_area_real = st.number_input("Área Real (ha)", min_value=0.0, step=0.1, format="%.2f")
+                t_area_plantio = st.number_input("Área do Plantio (ha)", min_value=0.0, step=0.1, format="%.2f")
+                t_area_pulv = st.number_input("Área Pulverizada (ha)", min_value=0.0, step=0.1, format="%.2f")
+                t_area_disp = st.number_input("Área Dispersão (ha)", min_value=0.0, step=0.1, format="%.2f")
+            
+            btn_cad_talhao = st.form_submit_button("Salvar Talhão no Google Drive")
+            if btn_cad_talhao:
+                if t_nome.strip():
+                    try:
+                        ws_talhao = get_worksheet_handle("Talhao", 1)
+                        prox_codigo = len(df_talhao) + 1
+                        nova_linha_t = [
+                            prox_codigo,
+                            t_produtor,
+                            t_nome.strip(),
+                            t_cultura,
+                            str(t_area_real).replace(".", ","),
+                            str(t_area_plantio).replace(".", ","),
+                            str(t_area_pulv).replace(".", ","),
+                            str(t_area_disp).replace(".", ",")
+                        ]
+                        ws_talhao.append_row(nova_linha_t, value_input_option="USER_ENTERED")
+                        st.cache_data.clear()
+                        st.success(f"Talhão '{t_nome}' cadastrado com sucesso!")
+                        st.rerun()
+                    except Exception as ex:
+                        st.error(f"Erro ao cadastrar talhão: {ex}")
+                else:
+                    st.warning("Informe o nome do talhão.")
+
+    # 2. CADASTRO DE CULTURA
+    with sub_tab2:
+        st.markdown("### Cadastrar Nova Cultura")
+        with st.form("form_nova_cultura"):
+            c_nome = st.text_input("Nome da Cultura (ex: Algodão, Feijão)")
+            btn_cad_cultura = st.form_submit_button("Salvar Cultura")
+            if btn_cad_cultura:
+                if c_nome.strip():
+                    try:
+                        ws_cultura = get_worksheet_handle("Cultura", 5)
+                        prox_codigo = len(df_cultura) + 1
+                        ws_cultura.append_row([prox_codigo, c_nome.strip()], value_input_option="USER_ENTERED")
+                        st.cache_data.clear()
+                        st.success(f"Cultura '{c_nome}' cadastrada!")
+                        st.rerun()
+                    except Exception as ex:
+                        st.error(f"Erro ao cadastrar cultura: {ex}")
+                else:
+                    st.warning("Informe o nome da cultura.")
+
+    # 3. CADASTRO DE TIPO DE APLICAÇÃO
+    with sub_tab3:
+        st.markdown("### Cadastrar Novo Tipo de Aplicação")
+        with st.form("form_novo_tp"):
+            tp_nome = st.text_input("Nome do Tipo de Aplicação (ex: Foliar, Adubação de Cobertura)")
+            btn_cad_tp = st.form_submit_button("Salvar Tipo de Aplicação")
+            if btn_cad_tp:
+                if tp_nome.strip():
+                    try:
+                        ws_tp = get_worksheet_handle("TpAplicação", 4)
+                        prox_codigo = len(df_tp) + 1
+                        ws_tp.append_row([prox_codigo, tp_nome.strip()], value_input_option="USER_ENTERED")
+                        st.cache_data.clear()
+                        st.success(f"Tipo de Aplicação '{tp_nome}' cadastrado!")
+                        st.rerun()
+                    except Exception as ex:
+                        st.error(f"Erro ao cadastrar tipo de aplicação: {ex}")
+                else:
+                    st.warning("Informe o nome do tipo de aplicação.")
+
+    # 4. CADASTRO DE PRODUTO
+    with sub_tab4:
+        st.markdown("### Cadastrar Novo Produto / Insumo")
         with st.form("form_novo_prod"):
             novo_prod_nome = st.text_input("Nome do Produto")
             if st.form_submit_button("Cadastrar Produto"):
-                if novo_prod_nome:
+                if novo_prod_nome.strip():
                     try:
                         ws_produto = get_worksheet_handle("Produto", 2)
                         proximo_codigo = len(df_produto) + 1
-                        ws_produto.append_row([proximo_codigo, novo_prod_nome], value_input_option="USER_ENTERED")
+                        ws_produto.append_row([proximo_codigo, novo_prod_nome.strip()], value_input_option="USER_ENTERED")
                         st.cache_data.clear()
                         st.success(f"Produto '{novo_prod_nome}' cadastrado!")
                         st.rerun()
                     except Exception as ex:
                         st.error(f"Erro ao salvar produto: {ex}")
+                else:
+                    st.warning("Informe o nome do produto.")
 
-    with col_b:
-        st.markdown("### ➕ Novo Produtor")
+    # 5. CADASTRO DE PRODUTOR
+    with sub_tab5:
+        st.markdown("### Cadastrar Novo Produtor")
         with st.form("form_novo_produtor"):
             novo_produtor_nome = st.text_input("Nome do Produtor")
             if st.form_submit_button("Cadastrar Produtor"):
-                if novo_produtor_nome:
+                if novo_produtor_nome.strip():
                     try:
                         ws_produtor = get_worksheet_handle("Produtor", 3)
                         proximo_codigo = len(df_produtor) + 1
-                        ws_produtor.append_row([proximo_codigo, novo_produtor_nome], value_input_option="USER_ENTERED")
+                        ws_produtor.append_row([proximo_codigo, novo_produtor_nome.strip()], value_input_option="USER_ENTERED")
                         st.cache_data.clear()
                         st.success(f"Produtor '{novo_produtor_nome}' cadastrado!")
                         st.rerun()
                     except Exception as ex:
                         st.error(f"Erro ao salvar produtor: {ex}")
+                else:
+                    st.warning("Informe o nome do produtor.")
