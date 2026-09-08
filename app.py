@@ -94,7 +94,7 @@ st.title("🌱 ZancanAgro - Lançamento de Aplicações")
 
 (df_app, df_talhao, df_produto, df_produtor, df_tp, df_cultura) = load_all_data()
 
-# Controle de sessão para mensagem de sucesso e valor da dose
+# Inicialização segura dos estados de sessão
 if "dose_input" not in st.session_state:
     st.session_state.dose_input = 0.0
 
@@ -132,7 +132,7 @@ aba_cadastro, aba_historico, aba_auxiliares = st.tabs(["📝 Cadastrar Aplicaç�
 with aba_cadastro:
     st.subheader("Nova Aplicação de Insumos")
     
-    # Exibe mensagem de sucesso vinda do redirecionamento
+    # Exibe a mensagem de sucesso caso exista no estado da sessão
     if st.session_state.msg_sucesso:
         st.success(st.session_state.msg_sucesso)
         st.session_state.msg_sucesso = ""
@@ -185,36 +185,37 @@ with aba_cadastro:
         st.warning(f"⚠️ O valor lido para **{coluna_area}** foi `{valor_area_bruto}`. Verifique o cadastro do talhão.")
 
     st.write("")
-    btn_salvar = st.button("💾 Salvar no Google Drive", type="primary")
     
-    if btn_salvar:
+    # Função para processar a gravação no Google Drive
+    def gravar_aplicacao():
         if not opcoes_talhao or talhao_sel not in opcoes_talhao:
             st.error("⚠️ Selecione um talhão válido associado ao produtor.")
         elif not produto_sel or dose_ha <= 0:
             st.error("⚠️ Selecione um produto e informe uma dose maior que zero.")
         else:
-            with st.spinner("Gravando dados no Google Drive..."):
-                try:
-                    ws_app = get_worksheet_handle("Aplicação", 0)
-                    
-                    nova_linha = [
-                        str(produtor_sel),
-                        str(talhao_sel),
-                        str(tipo_sel),
-                        str(produto_sel),
-                        str(dose_ha).replace(".", ","),
-                        str(round(volume_total, 2)).replace(".", ",") if volume_total > 0 else "",
-                        data_aplicacao.strftime("%d/%m/%Y")
-                    ]
-                    
-                    ws_app.append_row(nova_linha, value_input_option="USER_ENTERED")
-                    
-                    st.cache_data.clear()
-                    st.session_state.dose_input = 0.0
-                    st.session_state.msg_sucesso = "✅ Aplicação registrada com sucesso no Google Drive!"
-                    st.rerun()
-                except Exception as ex:
-                    st.error(f"❌ Falha ao gravar no Google Drive: {ex}")
+            try:
+                ws_app = get_worksheet_handle("Aplicação", 0)
+                
+                nova_linha = [
+                    str(produtor_sel),
+                    str(talhao_sel),
+                    str(tipo_sel),
+                    str(produto_sel),
+                    str(dose_ha).replace(".", ","),
+                    str(round(volume_total, 2)).replace(".", ",") if volume_total > 0 else "",
+                    data_aplicacao.strftime("%d/%m/%Y")
+                ]
+                
+                ws_app.append_row(nova_linha, value_input_option="USER_ENTERED")
+                
+                # Zera o campo de dose com segurança antes da atualização da página
+                st.session_state.dose_input = 0.0
+                st.session_state.msg_sucesso = "✅ Aplicação registrada com sucesso no Google Drive!"
+                st.cache_data.clear()
+            except Exception as ex:
+                st.error(f"❌ Falha ao gravar no Google Drive: {ex}")
+
+    st.button("💾 Salvar no Google Drive", type="primary", on_click=gravar_aplicacao)
 
 # --- ABA 2: HISTÓRICO DE APLICAÇÕES ---
 with aba_historico:
