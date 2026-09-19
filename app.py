@@ -213,6 +213,7 @@ with aba_dashboard:
         )
 
         # 2. Resumos em Tabelas
+        g_col2 = st.columns(1)
         with g_col2:
             st.markdown("### 📦 Total de Insumos Aplicados")
             resumo_prod = df_filtrado.groupby(col_produto)["Volume_Num"].sum().reset_index()
