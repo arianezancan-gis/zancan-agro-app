@@ -95,8 +95,14 @@ def atualizar_linha_gspread(sheet_name, fallback_index, num_linha_planilha, nova
 # ---------------------------------------------------------
 # 2. INTERFACE E CARREGAMENTO DE DADOS
 # ---------------------------------------------------------
-st.set_page_config(page_title="ZancanAgro - Gestão", layout="wide")
-st.title("🌱 ZancanAgro - Lançamento de Aplicações")
+#st.set_page_config(page_title="ZancanAgro - Gestão", layout="wide")
+#st.title("🌱 ZancanAgro - Lançamento de Aplicações")
+st.set_page_config(page_title="ZancanAgro - Gestão", page_icon="logo.png", layout="wide")
+col_logo, col_titulo = st.columns([1, 12], vertical_alignment="center")
+with col_logo:
+    st.image("logo.png", width=80)
+with col_titulo:
+    st.title("ZancanAgro - Lançamento de Aplicações")
 
 (df_app, df_talhao, df_produto, df_produtor, df_tp, df_cultura) = load_all_data()
 
