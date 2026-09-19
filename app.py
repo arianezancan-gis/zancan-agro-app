@@ -211,18 +211,19 @@ with aba_dashboard:
             pivot_area_prod.style.format("{:,.2f}"),
             use_container_width=True
         )
-
-        # 2. Resumos em Tabelas
-        st.markdown("### 📦 Total de Insumos Aplicados")
-        resumo_prod = df_filtrado.groupby(col_produto)["Volume_Num"].sum().reset_index()
-        resumo_prod.columns = ["Produto / Insumo", "Volume Total (L/Kg)"]
-        resumo_prod = resumo_prod.sort_values(by="Volume Total (L/Kg)", ascending=False)
-        # Exibe Tabela formatada
-        st.dataframe(
-            resumo_prod.style.format({"Volume Total (L/Kg)": "{:,.2f}"}),
-            use_container_width=True,
-            hide_index=True
-        )
+        g_col1, g_col2 = st.columns(2)
+        with g_col1:
+            # 2. Resumos em Tabelas
+            st.markdown("### 📦 Total de Insumos Aplicados")
+            resumo_prod = df_filtrado.groupby(col_produto)["Volume_Num"].sum().reset_index()
+            resumo_prod.columns = ["Produto / Insumo", "Volume Total (L/Kg)"]
+            resumo_prod = resumo_prod.sort_values(by="Volume Total (L/Kg)", ascending=False)
+            # Exibe Tabela formatada
+            st.dataframe(
+                resumo_prod.style.format({"Volume Total (L/Kg)": "{:,.2f}"}),
+                use_container_width=True,
+                hide_index=True
+            )
         st.markdown("---")
 
 # --- ABA 1: CADASTRO DE APLICAÇÕES ---
