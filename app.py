@@ -212,9 +212,7 @@ with aba_dashboard:
             use_container_width=True
         )
 
-        # 2. Resumos em Tabelas e Gráficos
-        g_col1, g_col2 = st.columns(2)
-
+        # 2. Resumos em Tabelas
         with g_col2:
             st.markdown("### 📦 Total de Insumos Aplicados")
             resumo_prod = df_filtrado.groupby(col_produto)["Volume_Num"].sum().reset_index()
