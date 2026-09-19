@@ -196,6 +196,22 @@ with aba_dashboard:
 
         st.markdown("---")
 
+        # 3. Cruzamento Detalhado: Produto x Área
+        st.markdown("### 📑 Detalhamento: Quanto de cada produto foi aplicado em cada Área")
+        pivot_area_prod = pd.pivot_table(
+            df_filtrado,
+            values="Volume_Num",
+            index=[col_talhao],
+            columns=[col_produto],
+            aggfunc="sum",
+            fill_value=0.0
+        )
+        
+        st.dataframe(
+            pivot_area_prod.style.format("{:,.2f}"),
+            use_container_width=True
+        )
+
         # 2. Resumos em Tabelas e Gráficos
         g_col1, g_col2 = st.columns(2)
 
@@ -213,22 +229,6 @@ with aba_dashboard:
             )
             
         st.markdown("---")
-
-        # 3. Cruzamento Detalhado: Produto x Área
-        st.markdown("### 📑 Detalhamento: Quanto de cada produto foi aplicado em cada Área")
-        pivot_area_prod = pd.pivot_table(
-            df_filtrado,
-            values="Volume_Num",
-            index=[col_talhao],
-            columns=[col_produto],
-            aggfunc="sum",
-            fill_value=0.0
-        )
-        
-        st.dataframe(
-            pivot_area_prod.style.format("{:,.2f}"),
-            use_container_width=True
-        )
 
 # --- ABA 1: CADASTRO DE APLICAÇÕES ---
 with aba_cadastro:
