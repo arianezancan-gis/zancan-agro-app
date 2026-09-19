@@ -199,22 +199,6 @@ with aba_dashboard:
         # 2. Resumos em Tabelas e Gráficos
         g_col1, g_col2 = st.columns(2)
 
-        with g_col1:
-            st.markdown("### 📍 Total Aplicado por Área / Talhão")
-            resumo_area = df_filtrado.groupby(col_talhao)["Volume_Num"].sum().reset_index()
-            resumo_area.columns = ["Área / Talhão", "Volume Total (L/Kg)"]
-            resumo_area = resumo_area.sort_values(by="Volume Total (L/Kg)", ascending=False)
-            
-            # Exibe Tabela formatada
-            st.dataframe(
-                resumo_area.style.format({"Volume Total (L/Kg)": "{:,.2f}"}),
-                use_container_width=True,
-                hide_index=True
-            )
-
-            # Gráfico de barras
-            #st.bar_chart(resumo_area.set_index("Área / Talhão"))
-
         with g_col2:
             st.markdown("### 📦 Total de Insumos Aplicados")
             resumo_prod = df_filtrado.groupby(col_produto)["Volume_Num"].sum().reset_index()
@@ -227,10 +211,7 @@ with aba_dashboard:
                 use_container_width=True,
                 hide_index=True
             )
-
-            # Gráfico de barras
-            #st.bar_chart(resumo_prod.set_index("Produto / Insumo"))
-
+            
         st.markdown("---")
 
         # 3. Cruzamento Detalhado: Produto x Área
