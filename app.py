@@ -213,7 +213,7 @@ with aba_dashboard:
             )
 
             # Gráfico de barras
-            st.bar_chart(resumo_area.set_index("Área / Talhão"))
+            #st.bar_chart(resumo_area.set_index("Área / Talhão"))
 
         with g_col2:
             st.markdown("### 📦 Total de Insumos Aplicados")
@@ -229,7 +229,7 @@ with aba_dashboard:
             )
 
             # Gráfico de barras
-            st.bar_chart(resumo_prod.set_index("Produto / Insumo"))
+            #st.bar_chart(resumo_prod.set_index("Produto / Insumo"))
 
         st.markdown("---")
 
