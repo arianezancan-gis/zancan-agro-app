@@ -1,4 +1,10 @@
-streamlit
+streamlit>=1.37
 pandas
-gspread
+gspread>=5.12
 google-auth
+requests
+geopandas>=0.14
+pyogrio
+shapely>=2.0
+folium>=0.15
+streamlit-folium>=0.20
