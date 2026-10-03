@@ -4,6 +4,8 @@ import gspread
 from google.oauth2.service_account import Credentials
 from datetime import date
 
+import mapas  # NOVO: mapas, limites (shapefile) e ortomosaicos
+
 # ---------------------------------------------------------
 # 1. AUTENTICAÇÃO E CONEXÃO COM GOOGLE DRIVE
 # ---------------------------------------------------------
@@ -18,16 +20,20 @@ def get_gspread_client():
         service_account_info["private_key"] = service_account_info["private_key"].replace("\\n", "\n")
 
     credentials = Credentials.from_service_account_info(
-        service_account_info, 
+        service_account_info,
         scopes=SCOPES
     )
     return gspread.authorize(credentials)
+
+def abrir_planilha():
+    """NOVO: usado pelo módulo de mapas."""
+    return get_gspread_client().open("ZancanAgro")
 
 def parse_float(val):
     """Converte com segurança qualquer texto com vírgula ou ponto para float."""
     if pd.isna(val) or val is None:
         return 0.0
-    
+
     s = str(val).strip()
     if not s or s in ["#REF!", "#N/A", "None", "nan", "NULL"]:
         return 0.0
@@ -46,24 +52,24 @@ def load_all_data():
     try:
         client = get_gspread_client()
         spreadsheet = client.open("ZancanAgro")
-        
+
         def get_df_raw(sheet_name, fallback_index=0):
             try:
                 ws = spreadsheet.worksheet(sheet_name)
             except Exception:
                 ws = spreadsheet.get_worksheet(fallback_index)
-            
+
             rows = ws.get_all_values()
             if not rows:
                 return pd.DataFrame()
-            
+
             headers = [str(h).strip() for h in rows[0]]
             data = rows[1:]
             df = pd.DataFrame(data, columns=headers)
-            
+
             for col in df.columns:
                 df[col] = df[col].astype(str).str.strip()
-                
+
             return df.dropna(how="all")
 
         df_app = get_df_raw("Aplicação", 0)
@@ -90,13 +96,11 @@ def atualizar_linha_gspread(sheet_name, fallback_index, num_linha_planilha, nova
     ws = get_worksheet_handle(sheet_name, fallback_index)
     col_final = chr(ord('A') + len(nova_linha) - 1)
     cell_range = f"A{num_linha_planilha}:{col_final}{num_linha_planilha}"
-    ws.update(cell_range, [nova_linha], value_input_option="USER_ENTERED")
+    ws.update(range_name=cell_range, values=[nova_linha], value_input_option="USER_ENTERED")
 
 # ---------------------------------------------------------
 # 2. INTERFACE E CARREGAMENTO DE DADOS
 # ---------------------------------------------------------
-#st.set_page_config(page_title="ZancanAgro - Gestão", layout="wide")
-#st.title("🌱 ZancanAgro - Lançamento de Aplicações")
 st.set_page_config(page_title="ZancanAgro - Gestão", page_icon="logo.png", layout="wide")
 col_logo, col_titulo = st.columns([1, 12], vertical_alignment="center")
 with col_logo:
@@ -139,10 +143,11 @@ else:
     lista_culturas = ["Soja", "Milho", "Trigo"]
 
 # Definição das abas da aplicação
-aba_dashboard, aba_cadastro, aba_historico, aba_auxiliares, aba_edicao_aux = st.tabs([
+aba_dashboard, aba_mapas, aba_cadastro, aba_historico, aba_auxiliares, aba_edicao_aux = st.tabs([
     "📈 Dashboard & Resumos",
-    "📝 Cadastrar Aplicação", 
-    "📊 Histórico de Aplicações", 
+    "🗺️ Mapas",  # NOVO
+    "📝 Cadastrar Aplicação",
+    "📊 Histórico de Aplicações",
     "⚙️ Cadastros Auxiliares",
     "✏️ Editar Cadastros Auxiliares"
 ])
@@ -150,13 +155,13 @@ aba_dashboard, aba_cadastro, aba_historico, aba_auxiliares, aba_edicao_aux = st.
 # --- ABA DASHBOARD & RESUMOS ---
 with aba_dashboard:
     st.subheader("📊 Resumo e Métricas das Aplicações")
-    
+
     if df_app.empty:
         st.info("Nenhum dado de aplicação cadastrado para exibir o dashboard.")
     else:
         # Copia e prepara o DataFrame para análise
         df_dash = df_app.copy()
-        
+
         # Identificação inteligente de colunas
         cols_lower = {col.lower(): col for col in df_dash.columns}
         col_produtor = cols_lower.get("produtor", df_dash.columns[0])
@@ -176,7 +181,7 @@ with aba_dashboard:
         with f_col1:
             prods_disponiveis = ["Todos"] + sorted(df_dash[col_produtor].dropna().unique().tolist())
             filtro_produtor = st.selectbox("Filtrar por Produtor:", options=prods_disponiveis)
-        
+
         with f_col2:
             produtos_disponiveis = ["Todos"] + sorted(df_dash[col_produto].dropna().unique().tolist())
             filtro_produto = st.selectbox("Filtrar por Produto:", options=produtos_disponiveis)
@@ -212,7 +217,7 @@ with aba_dashboard:
             aggfunc="sum",
             fill_value=0.0
         )
-        
+
         st.dataframe(
             pivot_area_prod.style.format("{:,.2f}"),
             use_container_width=True
@@ -232,10 +237,15 @@ with aba_dashboard:
             )
         st.markdown("---")
 
+# --- NOVA ABA: MAPAS ---
+with aba_mapas:
+    st.subheader("🗺️ Mapas dos Talhões")
+    mapas.render_aba_mapas(abrir_planilha, df_talhao, df_app, lista_produtores, parse_float)
+
 # --- ABA 1: CADASTRO DE APLICAÇÕES ---
 with aba_cadastro:
     st.subheader("Nova Aplicação de Insumos")
-    
+
     if st.session_state.msg_sucesso:
         st.success(st.session_state.msg_sucesso)
         st.session_state.msg_sucesso = ""
@@ -253,15 +263,15 @@ with aba_cadastro:
         opcoes_talhao = [t for t in opcoes_talhao if t]
 
     col1, col2 = st.columns(2)
-    
+
     with col1:
         talhao_sel = st.selectbox(
-            "2. Talhão / Área", 
+            "2. Talhão / Área",
             options=opcoes_talhao if opcoes_talhao else ["Nenhum talhão cadastrado para este produtor"],
             key="talhao_select"
         )
         tipo_sel = st.selectbox("3. Tipo de Aplicação", options=lista_tipos, key="tipo_select")
-        
+
     with col2:
         produto_sel = st.selectbox("4. Produto / Insumo", options=lista_produtos, key="produto_select")
         dose_ha = st.number_input("5. Dose/ha (L ou Kg)", min_value=0.0, step=0.01, format="%.2f", key="dose_input")
@@ -273,7 +283,7 @@ with aba_cadastro:
     valor_area_bruto = "0"
     if not df_talhao.empty and talhao_sel in opcoes_talhao:
         row_t = df_talhao[
-            (df_talhao["Produtor"].str.upper() == str(produtor_sel).upper()) & 
+            (df_talhao["Produtor"].str.upper() == str(produtor_sel).upper()) &
             (df_talhao["Nome da Área"].str.upper() == str(talhao_sel).upper())
         ]
         if not row_t.empty and coluna_area in row_t.columns:
@@ -288,7 +298,7 @@ with aba_cadastro:
         st.warning(f"⚠️ O valor lido para **{coluna_area}** foi `{valor_area_bruto}`. Verifique o cadastro do talhão.")
 
     st.write("")
-    
+
     def gravar_aplicacao():
         if not opcoes_talhao or talhao_sel not in opcoes_talhao:
             st.error("⚠️ Selecione um talhão válido associado ao produtor.")
@@ -297,7 +307,7 @@ with aba_cadastro:
         else:
             try:
                 ws_app = get_worksheet_handle("Aplicação", 0)
-                
+
                 nova_linha = [
                     str(produtor_sel),
                     str(talhao_sel),
@@ -307,9 +317,9 @@ with aba_cadastro:
                     str(round(volume_total, 2)).replace(".", ",") if volume_total > 0 else "",
                     data_aplicacao.strftime("%d/%m/%Y")
                 ]
-                
+
                 ws_app.append_row(nova_linha, value_input_option="USER_ENTERED")
-                
+
                 st.session_state.dose_input = 0.0
                 st.session_state.msg_sucesso = "✅ Aplicação registrada com sucesso no Google Drive!"
                 st.cache_data.clear()
@@ -321,7 +331,7 @@ with aba_cadastro:
 # --- ABA 2: HISTÓRICO DE APLICAÇÕES ---
 with aba_historico:
     st.subheader("Registros Salvos no Google Drive")
-    
+
     if st.button("🔄 Recarregar Dados"):
         st.cache_data.clear()
         st.rerun()
@@ -334,18 +344,19 @@ with aba_historico:
 # --- ABA 3: CADASTROS AUXILIARES ---
 with aba_auxiliares:
     st.subheader("⚙️ Cadastros do Sistema")
-    
+
     sub_tab1, sub_tab2, sub_tab3, sub_tab4, sub_tab5 = st.tabs([
-        "📍 Novo Talhão", 
-        "🌾 Nova Cultura", 
-        "📋 Novo Tipo de Aplicação", 
-        "📦 Novo Insumo/Produto", 
+        "📍 Novo Talhão",
+        "🌾 Nova Cultura",
+        "📋 Novo Tipo de Aplicação",
+        "📦 Novo Insumo/Produto",
         "👤 Novo Produtor"
     ])
-    
+
     # 1. CADASTRO DE TALHÃO
     with sub_tab1:
         st.markdown("### Cadastrar Novo Talhão / Área")
+        st.caption("💡 Depois de salvar, importe o limite (shapefile) e os ortomosaicos na aba 🗺️ Mapas.")
         with st.form("form_novo_talhao", clear_on_submit=True):
             c1, c2 = st.columns(2)
             with c1:
@@ -357,7 +368,7 @@ with aba_auxiliares:
                 t_area_plantio = st.number_input("Área do Plantio (ha)", min_value=0.0, step=0.1, format="%.2f")
                 t_area_pulv = st.number_input("Área Pulverizada (ha)", min_value=0.0, step=0.1, format="%.2f")
                 t_area_disp = st.number_input("Área Dispersão (ha)", min_value=0.0, step=0.1, format="%.2f")
-            
+
             btn_cad_talhao = st.form_submit_button("Salvar Talhão no Google Drive")
             if btn_cad_talhao:
                 if t_nome.strip():
@@ -459,15 +470,15 @@ with aba_auxiliares:
 # --- ABA 4: EDIÇÃO DE CADASTROS AUXILIARES ---
 with aba_edicao_aux:
     st.subheader("✏️ Editar Registros Auxiliares")
-    
+
     ed_tab1, ed_tab2, ed_tab3, ed_tab4, ed_tab5 = st.tabs([
-        "📍 Editar Talhão", 
-        "🌾 Editar Cultura", 
-        "📋 Editar Tipo de Aplicação", 
-        "📦 Editar Insumo/Produto", 
+        "📍 Editar Talhão",
+        "🌾 Editar Cultura",
+        "📋 Editar Tipo de Aplicação",
+        "📦 Editar Insumo/Produto",
         "👤 Editar Produtor"
     ])
-    
+
     # 1. EDIÇÃO DE TALHÃO
     with ed_tab1:
         st.markdown("### Editar Talhão")
@@ -477,13 +488,13 @@ with aba_edicao_aux:
             options_talhoes = []
             for idx, r in df_talhao.iterrows():
                 options_talhoes.append((f"{r.get('Produtor', '')} - {r.get('Nome da Área', '')} (Cód: {r.get('Código', '')})", idx + 2, r))
-            
+
             sel_talhao_opt = st.selectbox(
-                "Selecione o Talhão para Editar:", 
+                "Selecione o Talhão para Editar:",
                 options=[opt[0] for opt in options_talhoes],
                 key="edit_talhao_select"
             )
-            
+
             sel_tuple = [opt for opt in options_talhoes if opt[0] == sel_talhao_opt][0]
             row_idx_sheet = sel_tuple[1]
             dados = sel_tuple[2]
@@ -500,7 +511,7 @@ with aba_edicao_aux:
                     e_area_plantio = st.number_input("Área do Plantio (ha)", value=parse_float(dados.get("Área do Plantio", 0)), step=0.1, format="%.2f")
                     e_area_pulv = st.number_input("Área Pulverizada (ha)", value=parse_float(dados.get("Área Pulverizada", 0)), step=0.1, format="%.2f")
                     e_area_disp = st.number_input("Área Dispersão (ha)", value=parse_float(dados.get("Área Dispersão", 0)), step=0.1, format="%.2f")
-                
+
                 if st.form_submit_button("Atualizar Talhão no Google Drive"):
                     try:
                         nova_linha = [
@@ -596,7 +607,7 @@ with aba_edicao_aux:
     with ed_tab5:
         st.markdown("### Editar Produtor")
         if df_produtor.empty:
-            st.info("Nenum produtor cadastrado para editar.")
+            st.info("Nenhum produtor cadastrado para editar.")
         else:
             opts_pr = [(f"{r.get('Nome', '')} (Cód: {r.get('Código', '')})", idx + 2, r) for idx, r in df_produtor.iterrows()]
             sel_pr_opt = st.selectbox("Selecione o Produtor:", options=[opt[0] for opt in opts_pr], key="edit_produtor_select")
